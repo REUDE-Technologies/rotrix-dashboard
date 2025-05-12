@@ -26,7 +26,7 @@ def get_base64_image(image_path):
     with open(image_path, "rb") as img_file:
         return base64.b64encode(img_file.read()).decode()
 
-logo_base64 = get_base64_image("Rotrix-Logo.ppng")
+logo_base64 = get_base64_image("Rotrix-Logo.png")
 # st.logo(logo_base64, *, size="medium", link=None, icon_image=None)
 st.markdown(f"""
     <div style="display: flex; position: fixed; top:50px; left: 50px; z-index:50; justify-content: left; align-items: center; padding: 1px; background-color:white; border-radius:25px;">
