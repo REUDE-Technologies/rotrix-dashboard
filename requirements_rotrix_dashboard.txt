@@ -1,0 +1,11 @@
+streamlit
+pandas
+numpy
+plotly
+scikit-learn
+pyulog
+matplotlib
+seaborn
+scipy
+watchdog
+openpyxl
