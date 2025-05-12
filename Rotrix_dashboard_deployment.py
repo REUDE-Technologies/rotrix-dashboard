@@ -2,7 +2,6 @@
 
 # Modified script to support benchmark-only mode or benchmark+validation mode with all functionality toggled accordingly
 
-!pip install plotly
 
 import streamlit as st
 import pandas as pd
