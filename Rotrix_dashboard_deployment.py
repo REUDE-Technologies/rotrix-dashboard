@@ -65,7 +65,7 @@ def load_ulog(file, key_suffix=""):
 
     df = extracted_dfs.get(selected_topic, pd.DataFrame())
     if df.empty:
-        st.warning(f"Topic `{selected_topic}` has no data.")
+        st.warning(f"Topic {selected_topic} has no data.")
     
     return df
 
@@ -80,21 +80,43 @@ def detect_abnormalities(series, threshold=3.0):
     z_scores = np.abs((series - series.mean()) / series.std())
     return z_scores > threshold, z_scores
 
+def convert_timestamps_to_seconds(df):
+    """Convert timestamp columns to seconds from start"""
+    if df is None or df.empty:
+        return df
+    # Find timestamp columns (case insensitive)
+    timestamp_cols = [col for col in df.columns if 'time' in col.lower() or 'timestamp' in col.lower()]
+    for col in timestamp_cols:
+        # If numeric, check for ms/us and convert
+        if pd.api.types.is_numeric_dtype(df[col]):
+            if df[col].max() > 1e12:
+                df[col] = df[col] / 1e6  # microseconds to seconds
+            elif df[col].max() > 1e9:
+                df[col] = df[col] / 1e3  # milliseconds to seconds
+        # If datetime, convert to seconds from start
+        elif pd.api.types.is_datetime64_any_dtype(df[col]):
+            df[col] = (df[col] - df[col].min()).dt.total_seconds()
+    return df
+
 # Load logic
 def load_data(file, filetype, key_suffix):
     if filetype == ".csv":
         df_csv = load_csv(file)
+        df_csv = convert_timestamps_to_seconds(df_csv)
         return df_csv
-    elif filetype == ".pcd":
-        df_pcd = load_pcd(file)
-        return df_pcd
+    # elif filetype == ".pcd":
+    #     df_pcd = load_pcd(file)
+    #     df_pcd = convert_timestamps_to_seconds(df_pcd)
+    #     return df_pcd
     elif filetype == ".ulg":
         df_ulog = load_ulog(file, key_suffix)
-    return df_ulog
+        df_ulog = convert_timestamps_to_seconds(df_ulog)
+        return df_ulog
+    return None
 
 def add_remove_common_column(b_df, v_df):
     if b_df is None or v_df is None or b_df.empty or v_df.empty:
-        st.warning("⚠️ Both Benchmark and Target data must be loaded.")
+        st.warning("⚠ Both Benchmark and Target data must be loaded.")
         return b_df, v_df
 
     if "pending_column" in st.session_state:
@@ -107,7 +129,7 @@ def add_remove_common_column(b_df, v_df):
                 else:
                     df[new_col["name"]] = df.eval(new_col["formula"])
                 st.session_state[df_key] = df
-            st.success(f"✅ Added `{new_col['name']}` using `{new_col['formula']}` to both Benchmark and Target.")
+            st.success(f"✅ Added {new_col['name']} using {new_col['formula']} to both Benchmark and Target.")
         except Exception as e:
             st.error(f"❌ Failed to add column: {e}")
         del st.session_state["pending_column"]
@@ -128,7 +150,7 @@ def add_remove_common_column(b_df, v_df):
                 st.experimental_rerun()
 
     with col2:
-        st.markdown("###### 🗑️ Remove Column")
+        st.markdown("###### 🗑 Remove Column")
         common_cols = list(set(b_df.columns) & set(v_df.columns))
         cols_to_drop = st.multiselect("Select column(s) to drop", common_cols, key="common_drop")
 
@@ -136,7 +158,7 @@ def add_remove_common_column(b_df, v_df):
             if cols_to_drop:
                 st.session_state.b_df.drop(columns=cols_to_drop, inplace=True)
                 st.session_state.v_df.drop(columns=cols_to_drop, inplace=True)
-                st.success(f"🗑️ Removed columns: {', '.join(cols_to_drop)} from both Benchmark and Target.")
+                st.success(f"🗑 Removed columns: {', '.join(cols_to_drop)} from both Benchmark and Target.")
                 st.experimental_rerun()
 
     return st.session_state.b_df, st.session_state.v_df
@@ -145,7 +167,7 @@ def add_remove_common_column(b_df, v_df):
 def add_remove_column(target_df, df_name="DataFrame"):
      # CREATE COLUMN
     if target_df is None or target_df.empty:
-        st.warning(f"⚠️ {df_name} is empty or not loaded.")
+        st.warning(f"⚠ {df_name} is empty or not loaded.")
         return target_df
     
 #     col1, col2 = st.columns(2)
@@ -158,27 +180,27 @@ def add_remove_column(target_df, df_name="DataFrame"):
         try:
             if new_col_name and custom_formula:
                 target_df[new_col_name] = target_df.eval(custom_formula)
-                st.success(f"✅ Added column `{new_col_name}` to {selected_df} using: `{custom_formula}`")
+                st.success(f"✅ Added column {new_col_name} to {selected_df} using: {custom_formula}")
         except Exception as e:
             st.error(f"❌ Error creating column: {e}")
 #     with col2:
     # REMOVE COLUMN
-    st.markdown("##### 🗑️ Remove Column")
+    st.markdown("##### 🗑 Remove Column")
     columns_to_drop = st.multiselect("Select columns to drop", target_df.columns, key=f"{df_name}_drop")
 
     if st.button(f"Remove Column to {df_name}"):
         if columns_to_drop:
             target_df.drop(columns=columns_to_drop, inplace=True)
-            st.success(f"🗑️ Removed columns: {', '.join(columns_to_drop)} from {selected_df}")
+            st.success(f"🗑 Removed columns: {', '.join(columns_to_drop)} from {selected_df}")
             
-    st.markdown("##### ✏️ Rename Column")
+    st.markdown("##### ✏ Rename Column")
     rename_col = st.selectbox("Select column to rename", target_df.columns, key=f"{df_name}_rename_col")
     new_name = st.text_input("New column name", key=f"{df_name}_rename_input")
 
     if st.button(f"Rename Column in {df_name}", key=f"{df_name}_rename_button"):
         if rename_col and new_name:
             target_df.rename(columns={rename_col: new_name}, inplace=True)
-            st.success(f"✏️ Renamed column `{rename_col}` to `{new_name}` in {df_name}")
+            st.success(f"✏ Renamed column {rename_col} to {new_name} in {df_name}")
 
     return target_df
 
@@ -264,31 +286,31 @@ with col_main2:
     with tab2:
         st.subheader("📁 Imported Data Preview")
     
-        # Create working copies for modification
-    #     mod_b_df = b_df.copy()
-    #     mod_v_df = v_df.copy()
-        # Toggle to enable/disable modification tools
-    #     modify_enabled = st.checkbox("🧰 Enable DataFrame Modification")
+    # Create working copies for modification
+#     mod_b_df = b_df.copy()
+#     mod_v_df = v_df.copy()
+    # Toggle to enable/disable modification tools
+#     modify_enabled = st.checkbox("🧰 Enable DataFrame Modification")
     
-    #     if modify_enabled:
-    #     colt1, colt2 = st.columns([0.25, 0.75])
-    #     with colt1:
-    #         st.markdown("<h4 style='font-size:18px; color:#0099ff;'>🔧 Data Analysis Settings</h4>", unsafe_allow_html=True)
-    #         selected_df = st.multiselect("Select DataFrame to Modify", ["Benchmark", "Target", "Both"])
+#     if modify_enabled:
+#     colt1, colt2 = st.columns([0.25, 0.75])
+#     with colt1:
+#         st.markdown("<h4 style='font-size:18px; color:#0099ff;'>🔧 Data Analysis Settings</h4>", unsafe_allow_html=True)
+#         selected_df = st.multiselect("Select DataFrame to Modify", ["Benchmark", "Target", "Both"])
     
-    # #         if len(selected_df) > 0:
-    #         for param in selected_df:
-    #             if param == "Both":
-    #                 st.session_state.b_df, st.session_state.v_df = add_remove_common_column(st.session_state.b_df, st.session_state.v_df)
-    # #                 b_df, v_df = add_remove_common_column(b_df, v_df)
-    # #                     b_df = add_remove_column(b_df, df_name="Benchmark")
-    # #                     v_df = add_remove_column(v_df, df_name="Target")
+# #         if len(selected_df) > 0:
+#         for param in selected_df:
+#             if param == "Both":
+#                 st.session_state.b_df, st.session_state.v_df = add_remove_common_column(st.session_state.b_df, st.session_state.v_df)
+# #                 b_df, v_df = add_remove_common_column(b_df, v_df)
+# #                     b_df = add_remove_column(b_df, df_name="Benchmark")
+# #                     v_df = add_remove_column(v_df, df_name="Target")
     
-    #             elif param == "Benchmark":
-    #                 st.session_state.b_df = add_remove_column(st.session_state.b_df, df_name="Benchmark")
+#             elif param == "Benchmark":
+#                 st.session_state.b_df = add_remove_column(st.session_state.b_df, df_name="Benchmark")
     
-    #             elif param == "Target":
-    #                 st.session_state.v_df = add_remove_column(st.session_state.v_df, df_name="Target")
+#             elif param == "Target":
+#                 st.session_state.v_df = add_remove_column(st.session_state.v_df, df_name="Target")
     
         # with colt2:
         b_df = st.session_state.get("b_df")
@@ -487,9 +509,3 @@ with col_main2:
                 st.warning("No common columns to compare between Benchmark and Validation.")
         else:
             st.info("Please upload both benchmark and validation files or pre-converted CSVs.")
-    
-        
-        
-
-        
-        
