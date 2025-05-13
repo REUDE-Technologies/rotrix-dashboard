@@ -1,7 +1,5 @@
 # Modified script to support both single file analysis and comparative assessment modes
 
-# Modified script to support benchmark-only mode or benchmark+validation mode with all functionality toggled accordingly
-
 
 import streamlit as st
 import pandas as pd
