@@ -58,16 +58,9 @@ def load_ulog(file, key_suffix=""):
     
     if not topic_names:
         st.warning("No extractable topics found in ULOG file.")
-        return pd.DataFrame()
+        return {}, []
     
-    select_key = f"ulog_topic_{key_suffix}" if key_suffix else None
-    selected_topic = st.selectbox("Select a topic from extracted CSVs", topic_names, key=select_key)
-
-    df = extracted_dfs.get(selected_topic, pd.DataFrame())
-    if df.empty:
-        st.warning(f"Topic {selected_topic} has no data.")
-    
-    return df
+    return extracted_dfs, topic_names
 
 def detect_trend(series):
     if series.iloc[-1] > series.iloc[0]:
@@ -103,16 +96,12 @@ def load_data(file, filetype, key_suffix):
     if filetype == ".csv":
         df_csv = load_csv(file)
         df_csv = convert_timestamps_to_seconds(df_csv)
-        return df_csv
-    # elif filetype == ".pcd":
-    #     df_pcd = load_pcd(file)
-    #     df_pcd = convert_timestamps_to_seconds(df_pcd)
-    #     return df_pcd
+        return df_csv, None
     elif filetype == ".ulg":
-        df_ulog = load_ulog(file, key_suffix)
+        df_ulog, topic_names = load_ulog(file, key_suffix)
         df_ulog = convert_timestamps_to_seconds(df_ulog)
-        return df_ulog
-    return None
+        return df_ulog, topic_names
+    return None, None
 
 def add_remove_common_column(b_df, v_df):
     if b_df is None or v_df is None or b_df.empty or v_df.empty:
@@ -147,7 +136,7 @@ def add_remove_common_column(b_df, v_df):
                     "name": new_col_name,
                     "formula": custom_formula
                 }
-                st.experimental_rerun()
+                st.rerun()
 
     with col2:
         st.markdown("###### 🗑 Remove Column")
@@ -159,7 +148,7 @@ def add_remove_common_column(b_df, v_df):
                 st.session_state.b_df.drop(columns=cols_to_drop, inplace=True)
                 st.session_state.v_df.drop(columns=cols_to_drop, inplace=True)
                 st.success(f"🗑 Removed columns: {', '.join(cols_to_drop)} from both Benchmark and Target.")
-                st.experimental_rerun()
+                st.rerun()
 
     return st.session_state.b_df, st.session_state.v_df
 
@@ -211,9 +200,8 @@ st.markdown("<h4 style='font-size:20px; color:#FFFF00;'>🔼 Upload Benchmark & 
 top_col1, top_col2, top_col3, top_col4 = st.columns(4)
 
 with top_col1:
-
     benchmark_files = st.file_uploader("📂 Upload Benchmark File", type=["csv", "pcd", "ulg"], accept_multiple_files=True)
-    benchmark_names =  [f.name for f in benchmark_files]
+    benchmark_names = [f.name for f in benchmark_files] if benchmark_files else []
     
 with top_col3:
     b_df = None
@@ -222,11 +210,21 @@ with top_col3:
         if selected_bench != "None":
             b_file = benchmark_files[benchmark_names.index(selected_bench)]
             b_file_ext = os.path.splitext(b_file.name)[-1].lower()
-            st.session_state.b_df = load_data(b_file, b_file_ext, key_suffix="bench")
+            if b_file_ext == ".ulg":
+                b_dfs, b_topics = load_ulog(b_file)
+                if "common_topic" not in st.session_state:
+                    st.session_state.common_topic = b_topics[0] if b_topics else "None"
+                selected_topic = st.selectbox("Select Topic", options=b_topics, key="common_topic")
+                if selected_topic != "None" and selected_topic in b_dfs:
+                    st.session_state.b_df = b_dfs[selected_topic]
+            else:
+                df, _ = load_data(b_file, b_file_ext, key_suffix="bench")
+                if df is not None:
+                    st.session_state.b_df = df
         
 with top_col2:
     validation_files = st.file_uploader("📂 Upload Target File", type=["csv", "pcd", "ulg"], accept_multiple_files=True)
-    validation_names =  [f.name for f in validation_files]
+    validation_names = [f.name for f in validation_files] if validation_files else []
     
 with top_col4:
     v_df = None
@@ -235,7 +233,17 @@ with top_col4:
         if selected_val != "None":
             v_file = validation_files[validation_names.index(selected_val)]
             v_file_ext = os.path.splitext(v_file.name)[-1].lower()
-            st.session_state.v_df = load_data(v_file, v_file_ext, key_suffix="val")
+            if v_file_ext == ".ulg":
+                v_dfs, v_topics = load_ulog(v_file)
+                topic = st.session_state.common_topic if "common_topic" in st.session_state else (v_topics[0] if v_topics else "None")
+                if topic != "None" and topic in v_dfs:
+                    st.session_state.v_df = v_dfs[topic]
+                else:
+                    st.warning(f"Topic '{topic}' not found in target file.")
+            else:
+                df, _ = load_data(v_file, v_file_ext, key_suffix="val")
+                if df is not None:
+                    st.session_state.v_df = df
         
 if "b_df" not in st.session_state:
     st.session_state.b_df = None
@@ -245,74 +253,26 @@ if "v_df" not in st.session_state:
 b_df = st.session_state.get("b_df")
 v_df = st.session_state.get("v_df")
 
-# st.markdown("<h4 style='font-size:18px; color:#0099ff;'>🔧 Data Analysis Settings</h4>", unsafe_allow_html=True)
-# selected_df = st.multiselect("Select DataFrame to Modify", ["Benchmark", "Target", "Both"], key="data_enable")
-
-# #         if len(selected_df) > 0:
-# for param in selected_df:
-#     if param == "Both":
-#         st.session_state.b_df, st.session_state.v_df = add_remove_common_column(st.session_state.b_df, st.session_state.v_df)
-# #                 b_df, v_df = add_remove_common_column(b_df, v_df)
-# #                     b_df = add_remove_column(b_df, df_name="Benchmark")
-# #                     v_df = add_remove_column(v_df, df_name="Target")
-
-#     elif param == "Benchmark":
-#         st.session_state.b_df = add_remove_column(st.session_state.b_df, df_name="Benchmark")
-
-#     elif param == "Target":
-#         st.session_state.v_df = add_remove_column(st.session_state.v_df, df_name="Target")
-
+# Main layout
 col_main1, col_main2 = st.columns([0.25, 0.75])
+
 with col_main1:
     st.markdown("<h4 style='font-size:18px; color:#0099ff;'>🔧 Data Analysis Settings</h4>", unsafe_allow_html=True)
     selected_df = st.multiselect("Select DataFrame to Modify", ["Benchmark", "Target", "Both"], key='data_analysis')
 
-#         if len(selected_df) > 0:
-    for param in selected_df:
-        if param == "Both":
-            st.session_state.b_df, st.session_state.v_df = add_remove_common_column(st.session_state.b_df, st.session_state.v_df)
-#                 b_df, v_df = add_remove_common_column(b_df, v_df)
-#                     b_df = add_remove_column(b_df, df_name="Benchmark")
-#                     v_df = add_remove_column(v_df, df_name="Target")
+    if selected_df:  # Only process if something is selected
+        for param in selected_df:
+            if param == "Both":
+                st.session_state.b_df, st.session_state.v_df = add_remove_common_column(st.session_state.b_df, st.session_state.v_df)
+            elif param == "Benchmark":
+                st.session_state.b_df = add_remove_column(st.session_state.b_df, df_name="Benchmark")
+            elif param == "Target":
+                st.session_state.v_df = add_remove_column(st.session_state.v_df, df_name="Target")
 
-        elif param == "Benchmark":
-            st.session_state.b_df = add_remove_column(st.session_state.b_df, df_name="Benchmark")
-
-        elif param == "Target":
-            st.session_state.v_df = add_remove_column(st.session_state.v_df, df_name="Target")
-    
 with col_main2:
     tab1, tab2 = st.tabs(["📊 Plot", "📋 Data"])
     with tab2:
         st.subheader("📁 Imported Data Preview")
-    
-    # Create working copies for modification
-#     mod_b_df = b_df.copy()
-#     mod_v_df = v_df.copy()
-    # Toggle to enable/disable modification tools
-#     modify_enabled = st.checkbox("🧰 Enable DataFrame Modification")
-    
-#     if modify_enabled:
-#     colt1, colt2 = st.columns([0.25, 0.75])
-#     with colt1:
-#         st.markdown("<h4 style='font-size:18px; color:#0099ff;'>🔧 Data Analysis Settings</h4>", unsafe_allow_html=True)
-#         selected_df = st.multiselect("Select DataFrame to Modify", ["Benchmark", "Target", "Both"])
-    
-# #         if len(selected_df) > 0:
-#         for param in selected_df:
-#             if param == "Both":
-#                 st.session_state.b_df, st.session_state.v_df = add_remove_common_column(st.session_state.b_df, st.session_state.v_df)
-# #                 b_df, v_df = add_remove_common_column(b_df, v_df)
-# #                     b_df = add_remove_column(b_df, df_name="Benchmark")
-# #                     v_df = add_remove_column(v_df, df_name="Target")
-    
-#             elif param == "Benchmark":
-#                 st.session_state.b_df = add_remove_column(st.session_state.b_df, df_name="Benchmark")
-    
-#             elif param == "Target":
-#                 st.session_state.v_df = add_remove_column(st.session_state.v_df, df_name="Target")
-    
-        # with colt2:
         b_df = st.session_state.get("b_df")
         v_df = st.session_state.get("v_df")
         if b_df is not None and v_df is not None:
@@ -323,189 +283,296 @@ with col_main2:
             with col2:
                 st.markdown("### 🔬 Target Data")
                 st.dataframe(v_df)
-
         elif b_df is not None:
             st.markdown("### 🧪 Benchmark Data")
             st.dataframe(b_df)
-
         elif v_df is not None:
             st.markdown("### 🔬 Target Data")
             st.dataframe(v_df)
-
         else:
             st.info("No data uploaded yet.")
         
-#     else: 
-#         if b_df is not None and v_df is not None:
-#             col1, col2 = st.columns(2)
-#             with col1:
-#                 st.markdown("### 🧪 Benchmark Data")
-#                 st.dataframe(b_df)
-#             with col2:
-#                 st.markdown("### 🔬 Target Data")
-#                 st.dataframe(v_df)
-
-#         elif b_df is not None:
-#             st.markdown("### 🧪 Benchmark Data")
-#             st.dataframe(b_df)
-
-#         elif v_df is not None:
-#             st.markdown("### 🔬 Target Data")
-#             st.dataframe(v_df)
-
-#         else:
-#             st.info("No data uploaded yet.")
-    
     with tab1:
-    
-        st.subheader(" 🔍 Comparative Analysis")
-        if st.session_state.b_df is not None and st.session_state.v_df is not None:
-            st.session_state.b_df.insert(0, "Index", range(1, len(st.session_state.b_df) + 1))
-            st.session_state.v_df.insert(0, "Index", range(1, len(st.session_state.v_df) + 1))
-    
-            common_cols = list(set(st.session_state.b_df.columns) & set(st.session_state.v_df.columns))
-            if common_cols:
-    #             st.markdown("### 🎯 Similarity Metrics")
-                col1, col2, col3 = st.columns([0.20, 0.60, 0.20])
-                with col1:
-                    st.markdown("#### 📈 Parameters")
-                    x_axis = st.selectbox("X-Axis", ["None"] + common_cols, key="x_axis_select")
-                    y_axis = st.selectbox("Y-Axis", ["None"] + common_cols, key="y_axis_select")
-    #                 y_axis = st.multiselect("Select Y-axis (multiple allowed)", [col for col in common_cols if col != x_axis])
-    #                 color_axis = st.selectbox("Color by (Optional)", ["None"] + common_cols)
-                    z_threshold = st.slider("Z-Score Threshold", 1.0, 5.0, 3.0, 0.1, key="z-slider")
+        st.subheader(" 🔍 Data Analysis")
         
-                    if x_axis == "None" and y_axis == "None":
-                        st.info("📌 Please upload both files and select a valid X-axis to compare.")
-                    elif x_axis is not None and y_axis is not None:
-                        x_min = st.number_input("X min", value=float(b_df[x_axis].min()))
-                        x_max = st.number_input("X max", value=float(b_df[x_axis].max()))
-                        y_min = st.number_input("Y min", value=float(b_df[y_axis].min()))
-                        y_max = st.number_input("Y max", value=float(b_df[y_axis].max()))
-    
-                        # Filter data
-                        b_filtered = b_df[(b_df[x_axis] >= x_min) & (b_df[x_axis] <= x_max) &
-                                          (b_df[y_axis] >= y_min) & (b_df[y_axis] <= y_max)]
-                        v_filtered = v_df[(v_df[x_axis] >= x_min) & (v_df[x_axis] <= x_max) &
-                                          (v_df[y_axis] >= y_min) & (v_df[y_axis] <= y_max)]
-    
-                        merged = pd.merge(b_filtered, v_filtered, on=x_axis, suffixes=('_benchmark', '_validation'))
-                        
-                        val_col = f"{y_axis}_validation"
-                        bench_col = f"{y_axis}_benchmark"
-                        abnormal_mask, z_scores = detect_abnormalities(merged[val_col], z_threshold)
-                        merged["Z_Score"] = z_scores
-                        merged["Abnormal"] = abnormal_mask
-                        abnormal_points = merged[merged["Abnormal"]]
-                        
-                with col2:
-                    if x_axis == "None" and y_axis == "None":
-                        st.info("📌 Please upload both files and select a valid X-axis to compare.")
-                    else:
-                        st.markdown("<div style='min-height: 10px'>", unsafe_allow_html=True)
-                        st.markdown("</div>", unsafe_allow_html=True)
-                        # Plot layout
-                        st.markdown("### 🧮 Plot Visualization")
-                        fig = go.Figure()
-                        fig = make_subplots(rows=2, cols=1, subplot_titles=["Benchmark", "Target"], shared_yaxes=True)
-    
-                        fig.add_trace(go.Scatter(x=merged[x_axis], y=merged[f"{y_axis}_benchmark"], name="Benchmark", mode="lines"), row=1, col=1)
-                        fig.add_trace(go.Scatter(x=merged[x_axis], y=merged[f"{y_axis}_validation"], name="Target", mode="lines"), row=2, col=1)
-                        fig.add_trace(go.Scatter(x=abnormal_points[x_axis], y=abnormal_points[f"{y_axis}_validation"],
-                                                 mode='markers', marker=dict(color='red', size=6),
-                                                 name="Abnormal"), row=2, col=1)
-    
-                        fig.update_layout(height=700, width=1000, title_text="Benchmark vs Target Subplot")
-                        st.plotly_chart(fig, use_container_width=True)
-    
-            #             st.markdown("### 🎯 Similarity Metrics")
-            #             col1, col2, col3 = st.columns(3)
-        #                 col1.metric("Similarity Index", f"{similarity*100:.1f}%")
-        #                 col2.metric("RMSE", f"{rmse:.2f}")
-        #                 col3.metric("Abnormal Points", f"{abnormal_mask.sum()}")
-    
-                with col3:
-                    
-                    if x_axis == "None" and y_axis == "None":
-                            st.info("📌 Please upload both files and select a valid X-axis to compare.")
-                    else:
-                        st.markdown("<div style='min-height: 10px'>", unsafe_allow_html=True)
-                        st.markdown("</div>", unsafe_allow_html=True)
-                        st.markdown("### 🎯 Metrics")
-                        rmse = np.sqrt(mean_squared_error(merged[bench_col], merged[val_col]))
-                        similarity = 1 - (rmse / (merged[bench_col].max() - merged[bench_col].min()))
-    
-                        similarity_index = similarity*100
-                        
-                        fig = make_subplots(
-                            rows=3, cols=1,
-                            specs=[[{"type": "indicator"}], [{"type": "indicator"}], [{"type": "indicator"}]],
-                            vertical_spacing=0.05  # spacing between rows
-                        )
-    
-    
-                        fig.add_trace(go.Indicator(
-                            mode="gauge+number+delta",
-                            value=similarity_index,
-                            title={'text': "Similarity Index (%)"},
-                            delta={'reference': 100, 'increasing': {'color': "green"}, 'decreasing': {'color': "red"}},
-                            gauge={
-                                'axis': {'range': [0, 100]},
-                                'bar': {'color': "darkblue"},
-                                'steps': [
-                                    {'range': [0, 50], 'color': "red"},
-                                    {'range': [50, 75], 'color': "orange"},
-                                    {'range': [75, 100], 'color': "green"}
-                                ],
-                                'threshold': {
-                                    'line': {'color': "black", 'width': 4},
-                                    'thickness': 0.75,
-                                    'value': similarity_index
+        # Get the active dataframe(s)
+        b_df = st.session_state.get("b_df")
+        v_df = st.session_state.get("v_df")
+        
+        # Check if at least one file is loaded
+        if b_df is not None or v_df is not None:
+            # If both files are loaded, do comparative analysis
+            if b_df is not None and v_df is not None:
+                st.subheader("Comparative Analysis")
+                b_df.insert(0, "Index", range(1, len(b_df) + 1))
+                v_df.insert(0, "Index", range(1, len(v_df) + 1))
+        
+                common_cols = list(set(b_df.columns) & set(v_df.columns))
+                if common_cols:
+                    col1, col2, col3 = st.columns([0.20, 0.60, 0.20])
+                    with col1:
+                        st.markdown("#### 📈 Parameters")
+                        x_axis = st.selectbox("X-Axis", ["None"] + common_cols, key="x_axis_select")
+                        y_axis = st.selectbox("Y-Axis", ["None"] + common_cols, key="y_axis_select")
+                        z_threshold = st.slider("Z-Score Threshold", 1.0, 5.0, 3.0, 0.1, key="z-slider")
+            
+                        if x_axis == "None" and y_axis == "None":
+                            st.info("📌 Please select valid X and Y axes to compare.")
+                        elif x_axis is not None and y_axis is not None:
+                            x_min = st.number_input("X min", value=float(b_df[x_axis].min()))
+                            x_max = st.number_input("X max", value=float(b_df[x_axis].max()))
+                            y_min = st.number_input("Y min", value=float(b_df[y_axis].min()))
+                            y_max = st.number_input("Y max", value=float(b_df[y_axis].max()))
+        
+                            # Filter data
+                            b_filtered = b_df[(b_df[x_axis] >= x_min) & (b_df[x_axis] <= x_max) &
+                                              (b_df[y_axis] >= y_min) & (b_df[y_axis] <= y_max)]
+                            v_filtered = v_df[(v_df[x_axis] >= x_min) & (v_df[x_axis] <= x_max) &
+                                              (v_df[y_axis] >= y_min) & (v_df[y_axis] <= y_max)]
+        
+                            merged = pd.merge(b_filtered, v_filtered, on=x_axis, suffixes=('_benchmark', '_validation'))
+                            
+                            if merged.empty:
+                                st.warning("No overlapping data found for the selected X-axis. Try a different X-axis or check your files.")
+                            else:
+                                val_col = f"{y_axis}_validation"
+                                bench_col = f"{y_axis}_benchmark"
+                                abnormal_mask, z_scores = detect_abnormalities(merged[val_col], z_threshold)
+                                merged["Z_Score"] = z_scores
+                                merged["Abnormal"] = abnormal_mask
+                                abnormal_points = merged[merged["Abnormal"]]
+                                
+                    with col2:
+                        if x_axis == "None" and y_axis == "None":
+                            st.info("📌 Please select valid X and Y axes to compare.")
+                        else:
+                            st.markdown("<div style='min-height: 10px'>", unsafe_allow_html=True)
+                            st.markdown("</div>", unsafe_allow_html=True)
+                            st.markdown("### 🧮 Plot Visualization")
+                            fig = go.Figure()
+                            fig = make_subplots(rows=2, cols=1, subplot_titles=["Benchmark", "Target"], shared_yaxes=True)
+            
+                            fig.add_trace(go.Scatter(x=merged[x_axis], y=merged[f"{y_axis}_benchmark"], name="Benchmark", mode="lines"), row=1, col=1)
+                            fig.add_trace(go.Scatter(x=merged[x_axis], y=merged[f"{y_axis}_validation"], name="Target", mode="lines"), row=2, col=1)
+                            fig.add_trace(go.Scatter(x=abnormal_points[x_axis], y=abnormal_points[f"{y_axis}_validation"],
+                                                     mode='markers', marker=dict(color='red', size=6),
+                                                     name="Abnormal"), row=2, col=1)
+            
+                            fig.update_layout(height=700, width=1000, title_text="Benchmark vs Target Subplot")
+                            st.plotly_chart(fig, use_container_width=True)
+            
+                    with col3:
+                        if x_axis == "None" and y_axis == "None":
+                            st.info("📌 Please select valid X and Y axes to compare.")
+                        else:
+                            st.markdown("<div style='min-height: 10px'>", unsafe_allow_html=True)
+                            st.markdown("</div>", unsafe_allow_html=True)
+                            st.markdown("### 🎯 Metrics")
+                            rmse = np.sqrt(mean_squared_error(merged[bench_col], merged[val_col]))
+                            similarity = 1 - (rmse / (merged[bench_col].max() - merged[bench_col].min()))
+            
+                            similarity_index = similarity*100
+                            
+                            fig = make_subplots(
+                                rows=3, cols=1,
+                                specs=[[{"type": "indicator"}], [{"type": "indicator"}], [{"type": "indicator"}]],
+                                vertical_spacing=0.05
+                            )
+            
+                            fig.add_trace(go.Indicator(
+                                mode="gauge+number+delta",
+                                value=similarity_index,
+                                title={'text': "Similarity Index (%)"},
+                                delta={'reference': 100, 'increasing': {'color': "green"}, 'decreasing': {'color': "red"}},
+                                gauge={
+                                    'axis': {'range': [0, 100]},
+                                    'bar': {'color': "darkblue"},
+                                    'steps': [
+                                        {'range': [0, 50], 'color': "red"},
+                                        {'range': [50, 75], 'color': "orange"},
+                                        {'range': [75, 100], 'color': "green"}
+                                    ],
+                                    'threshold': {
+                                        'line': {'color': "black", 'width': 4},
+                                        'thickness': 0.75,
+                                        'value': similarity_index
+                                    }
                                 }
-                            }
-                        ), row=1, col=1)
-    
-        #             with col2:
-                        
-                        rmse_value = rmse
-                        fig.add_trace(go.Indicator(
-                            mode="gauge+number",
-                            value=rmse_value,
-                            title={'text': "RMSE Error"},
-                            gauge={
-                                'axis': {'range': [0, max(100, rmse_value * 2)]},
-                                'bar': {'color': "orange"},
-                                'steps': [
-                                    {'range': [0, 10], 'color': "#d4f0ff"},
-                                    {'range': [10, 30], 'color': "#ffeaa7"},
-                                    {'range': [30, 100], 'color': "#ff7675"}
-                                ]
-                            }
-                        ), row=2, col=1)
-    
-        #             with col3:
-                        abnormal_points = abnormal_mask.sum()
-                        fig.add_trace(go.Indicator(
-                            mode="gauge+number",
-                            value=abnormal_points,
-                            title={'text': "Abnormal Points"},
-                            gauge={
-                                'axis': {'range': [0, max(10, abnormal_points * 2)]},
-                                'bar': {'color': "crimson"},
-                                'steps': [
-                                    {'range': [0, 10], 'color': "#c8e6c9"},
-                                    {'range': [10, 25], 'color': "#ffcc80"},
-                                    {'range': [25, 100], 'color': "#ef5350"}
-                                ]
-                            }
-                        ), row=3, col=1)
-                        # Final layout
-                        fig.update_layout(height=700, margin=dict(t=10, b=10))
-                        # Display in Streamlit
-                        st.plotly_chart(fig, use_container_width=True)    
-    
-    
+                            ), row=1, col=1)
+                                
+                            rmse_value = float(rmse)
+                            fig.add_trace(go.Indicator(
+                                mode="gauge+number",
+                                value=rmse_value,
+                                title={'text': "RMSE Error"},
+                                gauge={
+                                    'axis': {'range': [0, max(100, rmse_value * 2)]},
+                                    'bar': {'color': "orange"},
+                                    'steps': [
+                                        {'range': [0, 10], 'color': "#d4f0ff"},
+                                        {'range': [10, 30], 'color': "#ffeaa7"},
+                                        {'range': [30, 100], 'color': "#ff7675"}
+                                    ]
+                                }
+                            ), row=2, col=1)
+            
+                            abnormal_count = int(abnormal_mask.sum())
+                            fig.add_trace(go.Indicator(
+                                mode="gauge+number",
+                                value=abnormal_count,
+                                title={'text': "Abnormal Points"},
+                                gauge={
+                                    'axis': {'range': [0, max(10, abnormal_count * 2)]},
+                                    'bar': {'color': "crimson"},
+                                    'steps': [
+                                        {'range': [0, 10], 'color': "#c8e6c9"},
+                                        {'range': [10, 25], 'color': "#ffcc80"},
+                                        {'range': [25, 100], 'color': "#ef5350"}
+                                    ]
+                                }
+                            ), row=3, col=1)
+                                
+                            fig.update_layout(height=700, margin=dict(t=10, b=10))
+                            st.plotly_chart(fig, use_container_width=True)    
+            
+                else:
+                    st.warning("No common columns to compare between Benchmark and Validation.")
+            
+            # Single file analysis
             else:
-                st.warning("No common columns to compare between Benchmark and Validation.")
+                df = b_df if b_df is not None else v_df
+                if df is not None:  # Add explicit None check
+                    st.subheader("Single File Analysis")
+                    df.insert(0, "Index", range(1, len(df) + 1))
+                    
+                    col1, col2, col3 = st.columns([0.20, 0.60, 0.20])
+                    with col1:
+                        st.markdown("#### 📈 Parameters")
+                        x_axis = st.selectbox("X-Axis", ["None"] + list(df.columns), key="single_x_axis")
+                        y_axis = st.selectbox("Y-Axis", ["None"] + list(df.columns), key="single_y_axis")
+                        z_threshold = st.slider("Z-Score Threshold", 1.0, 5.0, 3.0, 0.1, key="single_z-slider")
+                        
+                        if x_axis != "None" and y_axis != "None":
+                            x_min = st.number_input("X min", value=float(df[x_axis].min()))
+                            x_max = st.number_input("X max", value=float(df[x_axis].max()))
+                            y_min = st.number_input("Y min", value=float(df[y_axis].min()))
+                            y_max = st.number_input("Y max", value=float(df[y_axis].max()))
+                            
+                            # Filter data
+                            filtered_df = df[(df[x_axis] >= x_min) & (df[x_axis] <= x_max) &
+                                           (df[y_axis] >= y_min) & (df[y_axis] <= y_max)]
+                            
+                            # Calculate statistics and detect abnormalities
+                            stats = filtered_df[y_axis].describe()
+                            abnormal_mask, z_scores = detect_abnormalities(filtered_df[y_axis], z_threshold)
+                            filtered_df["Z_Score"] = z_scores
+                            filtered_df["Abnormal"] = abnormal_mask
+                            abnormal_points = filtered_df[filtered_df["Abnormal"]]
+                            
+                    with col2:
+                        if x_axis != "None" and y_axis != "None":
+                            st.markdown("<div style='min-height: 10px'>", unsafe_allow_html=True)
+                            st.markdown("</div>", unsafe_allow_html=True)
+                            st.markdown("### 🧮 Plot Visualization")
+                            fig = go.Figure()
+                            
+                            # Add main line plot
+                            fig.add_trace(go.Scatter(
+                                x=filtered_df[x_axis],
+                                y=filtered_df[y_axis],
+                                mode='lines',
+                                name='Data'
+                            ))
+                            
+                            # Add abnormal points
+                            fig.add_trace(go.Scatter(
+                                x=abnormal_points[x_axis],
+                                y=abnormal_points[y_axis],
+                                mode='markers',
+                                marker=dict(color='red', size=6),
+                                name='Abnormal Points'
+                            ))
+                            
+                            # Add mean line
+                            mean_value = filtered_df[y_axis].mean()
+                            fig.add_hline(y=mean_value, line_dash="dash", line_color="green",
+                                        annotation_text=f"Mean: {mean_value:.2f}")
+                            
+                            fig.update_layout(
+                                title=f"{y_axis} vs {x_axis}",
+                                xaxis_title=x_axis,
+                                yaxis_title=y_axis,
+                                height=700
+                            )
+                            st.plotly_chart(fig, use_container_width=True)
+                        else:
+                            st.info("Please select both X and Y axes to visualize the data.")
+                            
+                    with col3:
+                        if x_axis != "None" and y_axis != "None":
+                            st.markdown("<div style='min-height: 10px'>", unsafe_allow_html=True)
+                            st.markdown("</div>", unsafe_allow_html=True)
+                            st.markdown("### 🎯 Metrics")
+                            
+                            fig = make_subplots(
+                                rows=3, cols=1,
+                                specs=[[{"type": "indicator"}], [{"type": "indicator"}], [{"type": "indicator"}]],
+                                vertical_spacing=0.05
+                            )
+                            
+                            # Mean value gauge
+                            fig.add_trace(go.Indicator(
+                                mode="gauge+number",
+                                value=float(stats['mean']),
+                                title={'text': "Mean Value"},
+                                gauge={
+                                    'axis': {'range': [float(stats['min']), float(stats['max'])],
+                                            'tickformat': '.2f'},
+                                    'bar': {'color': "darkblue"},
+                                    'steps': [
+                                        {'range': [float(stats['min']), float(stats['25%'])], 'color': "lightgray"},
+                                        {'range': [float(stats['25%']), float(stats['75%'])], 'color': "gray"},
+                                        {'range': [float(stats['75%']), float(stats['max'])], 'color': "darkgray"}
+                                    ]
+                                }
+                            ), row=1, col=1)
+                            
+                            # Standard Deviation gauge
+                            fig.add_trace(go.Indicator(
+                                mode="gauge+number",
+                                value=float(stats['std']),
+                                title={'text': "Standard Deviation"},
+                                gauge={
+                                    'axis': {'range': [0, float(stats['std'] * 2)],
+                                            'tickformat': '.2f'},
+                                    'bar': {'color': "orange"},
+                                    'steps': [
+                                        {'range': [0, float(stats['std'])], 'color': "#d4f0ff"},
+                                        {'range': [float(stats['std']), float(stats['std'] * 2)], 'color': "#ffeaa7"}
+                                    ]
+                                }
+                            ), row=2, col=1)
+                            
+                            # Abnormal Points gauge
+                            abnormal_count = int(abnormal_mask.sum())
+                            fig.add_trace(go.Indicator(
+                                mode="gauge+number",
+                                value=abnormal_count,
+                                title={'text': "Abnormal Points"},
+                                gauge={
+                                    'axis': {'range': [0, max(10, abnormal_count * 2)]},
+                                    'bar': {'color': "crimson"},
+                                    'steps': [
+                                        {'range': [0, 10], 'color': "#c8e6c9"},
+                                        {'range': [10, 25], 'color': "#ffcc80"},
+                                        {'range': [25, 100], 'color': "#ef5350"}
+                                    ]
+                                }
+                            ), row=3, col=1)
+                            
+                            fig.update_layout(height=700, margin=dict(t=10, b=10))
+                            st.plotly_chart(fig, use_container_width=True)
+                        else:
+                            st.info("Please select both X and Y axes to view metrics.")
         else:
-            st.info("Please upload both benchmark and validation files or pre-converted CSVs.")
+            st.info("Please upload at least one file to begin analysis.")
