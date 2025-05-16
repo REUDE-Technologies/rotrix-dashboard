@@ -358,7 +358,8 @@ with col_main2:
                                                      mode='markers', marker=dict(color='red', size=6),
                                                      name="Abnormal"), row=2, col=1)
             
-                            fig.update_layout(height=700, width=1000, title_text="Benchmark vs Target Subplot")
+                            fig.update_layout(legend=dict(orientation="h", yanchor="bottom", y=1.05, xanchor="center", x=0.5),
+                            height=700, width=1000, title_text="Benchmark vs Target Subplot")
                             st.plotly_chart(fig, use_container_width=True)
             
                     with col3:
