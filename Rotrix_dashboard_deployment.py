@@ -498,7 +498,7 @@ with col_main2:
                             fig.add_hline(y=mean_value, line_dash="dash", line_color="green",
                                         annotation_text=f"Mean: {mean_value:.2f}")
                             
-                            fig.update_layout(
+                            fig.update_layout(legend=dict(orientation="h", yanchor="bottom", y=1.05, xanchor="center", x=0.5),     
                                 title=f"{y_axis} vs {x_axis}",
                                 xaxis_title=x_axis,
                                 yaxis_title=y_axis,
