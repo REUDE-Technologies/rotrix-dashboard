@@ -51,16 +51,31 @@ def load_csv(file):
 #             df["Temperature"] = np.mean(np.asarray(pcd.colors), axis=1)
 #     return df
 
+# List of (topic, assessment name) pairs
+TOPIC_ASSESSMENT_PAIRS = [
+    ("vehicle_local_position", "Actualposition"),
+    ("vehicle_local_position_setpoint", "Setpointposition"),
+    ("vehicle_local_position_setpoint", "Thrust"),
+    ("vehicle_torque_setpoint", "Torque"),
+    ("px4io_status", "Control"),
+    ("battery_status", "Battery"),
+]
+
 def load_ulog(file, key_suffix=""):
+    ALLOWED_TOPICS = set(t for t, _ in TOPIC_ASSESSMENT_PAIRS)
+    
     ulog = ULog(file)
     extracted_dfs = {msg.name: pd.DataFrame(msg.data) for msg in ulog.data_list}
-    topic_names = ["None"] + list(extracted_dfs.keys())
+    
+    # Filter topics to only include allowed ones
+    filtered_dfs = {topic: df for topic, df in extracted_dfs.items() if topic in ALLOWED_TOPICS}
+    topic_names = ["None"] + list(filtered_dfs.keys())
     
     if not topic_names:
         st.warning("No extractable topics found in ULOG file.")
         return {}, []
     
-    return extracted_dfs, topic_names
+    return filtered_dfs, topic_names
 
 def detect_trend(series):
     if series.iloc[-1] > series.iloc[0]:
@@ -214,7 +229,12 @@ with top_col3:
                 b_dfs, b_topics = load_ulog(b_file)
                 if "common_topic" not in st.session_state:
                     st.session_state.common_topic = b_topics[0] if b_topics else "None"
-                selected_topic = st.selectbox("Select Topic", options=b_topics, key="common_topic")
+                # Map topic names to assessment names for display
+                assessment_names = ["None"] + [a for _, a in TOPIC_ASSESSMENT_PAIRS]
+                # Map assessment name to topic
+                assessment_to_topic = {a: t for t, a in TOPIC_ASSESSMENT_PAIRS}
+                selected_assessment = st.selectbox("Select Topic", options=assessment_names, key="common_topic")
+                selected_topic = assessment_to_topic[selected_assessment] if selected_assessment in assessment_to_topic else "None"
                 if selected_topic != "None" and selected_topic in b_dfs:
                     st.session_state.b_df = b_dfs[selected_topic]
             else:
@@ -235,11 +255,21 @@ with top_col4:
             v_file_ext = os.path.splitext(v_file.name)[-1].lower()
             if v_file_ext == ".ulg":
                 v_dfs, v_topics = load_ulog(v_file)
-                topic = st.session_state.common_topic if "common_topic" in st.session_state else (v_topics[0] if v_topics else "None")
+                # No topic dropdown for target; use the selected topic from the single dropdown
+                topic = None
+                if "common_topic" in st.session_state:
+                    # Get the selected assessment name from the single dropdown
+                    selected_assessment = st.session_state.common_topic
+                    # Map assessment name back to topic name
+                    assessment_to_topic = {a: t for t, a in TOPIC_ASSESSMENT_PAIRS}
+                    topic = assessment_to_topic[selected_assessment] if selected_assessment in assessment_to_topic else "None"
+                else:
+                    topic = v_topics[0] if v_topics else "None"
                 if topic != "None" and topic in v_dfs:
                     st.session_state.v_df = v_dfs[topic]
                 else:
-                    st.warning(f"Topic '{topic}' not found in target file.")
+                    st.session_state.v_df = None
+                    st.warning(f"Topic '{selected_assessment}' not found in target file.")
             else:
                 df, _ = load_data(v_file, v_file_ext, key_suffix="val")
                 if df is not None:
@@ -576,4 +606,4 @@ with col_main2:
                         else:
                             st.info("Please select both X and Y axes to view metrics.")
         else:
-            st.info("Please upload at least one file to begin analysis.")
+            st.info("Please upload at least one file to begin analysis.")
