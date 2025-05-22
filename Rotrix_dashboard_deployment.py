@@ -61,6 +61,15 @@ TOPIC_ASSESSMENT_PAIRS = [
     ("battery_status", "Battery"),
 ]
 
+ASSESSMENT_Y_AXIS_MAP = {
+    "Actualposition": ["x", "y", "z"],
+    "Setpointposition": ["x", "y", "z"],
+    "Thrust": ["thrust[0]", "thrust[1]", "thrust[2]"],
+    "Torque": ["xyz[0]", "xyz[1]", "xyz[2]"],
+    "Control": ["pwm[0]", "pwm[1]", "pwm[2]", "pwm[3]"],
+    "Battery": ["voltage_v", "current_average_a", "discharged_mah"],
+}
+
 def load_ulog(file, key_suffix=""):
     ALLOWED_TOPICS = set(t for t, _ in TOPIC_ASSESSMENT_PAIRS)
     
@@ -105,6 +114,54 @@ def convert_timestamps_to_seconds(df):
         elif pd.api.types.is_datetime64_any_dtype(df[col]):
             df[col] = (df[col] - df[col].min()).dt.total_seconds()
     return df
+
+def ensure_seconds_column(df):
+    """Ensure a 'timestamp_seconds' column exists and is always in seconds from start, using robust heuristics."""
+    if df is None or df.empty:
+        return df
+    timestamp_col = next((col for col in df.columns if 'time' in col.lower() or 'timestamp' in col.lower()), None)
+    if timestamp_col is None:
+        return df
+    series = df[timestamp_col]
+    # Heuristic: check the difference between first two values (if possible)
+    if len(series) > 1:
+        delta = series.iloc[1] - series.iloc[0]
+        if delta > 1e6:  # microseconds
+            df['timestamp_seconds'] = (series - series.min()) / 1e6
+        elif delta > 1e3:  # milliseconds
+            df['timestamp_seconds'] = (series - series.min()) / 1e3
+        else:  # already in seconds or close
+            df['timestamp_seconds'] = series - series.min()
+    else:
+        df['timestamp_seconds'] = series - series.min()
+    return df
+
+def resample_to_common_time(df1, df2, freq=1.0):
+    """
+    Resample two DataFrames to a common time base using interpolation.
+    freq: float, in seconds (e.g., 1.0 for 1 second)
+    Returns: (df1_resampled, df2_resampled, common_time_index)
+    """
+    # Ensure timestamp_seconds exists and is sorted
+    for i, df in enumerate([df1, df2]):
+        if 'timestamp_seconds' not in df.columns:
+            raise ValueError("timestamp_seconds column missing")
+        df = df.copy()
+        df.sort_values('timestamp_seconds', inplace=True)
+        if i == 0:
+            df1 = df
+        else:
+            df2 = df
+    # Create a common time index (from max of min to min of max)
+    start = max(df1['timestamp_seconds'].min(), df2['timestamp_seconds'].min())
+    end = min(df1['timestamp_seconds'].max(), df2['timestamp_seconds'].max())
+    if start >= end:
+        raise ValueError("No overlapping time range for resampling.")
+    common_time = np.arange(start, end, freq)
+    # Set index and interpolate
+    df1_interp = df1.set_index('timestamp_seconds').interpolate(method='linear').reindex(common_time, method='nearest').reset_index().rename(columns={'index': 'timestamp_seconds'})
+    df2_interp = df2.set_index('timestamp_seconds').interpolate(method='linear').reindex(common_time, method='nearest').reset_index().rename(columns={'index': 'timestamp_seconds'})
+    return df1_interp, df2_interp, common_time
 
 # Load logic
 def load_data(file, filetype, key_suffix):
@@ -269,7 +326,6 @@ with top_col4:
                     st.session_state.v_df = v_dfs[topic]
                 else:
                     st.session_state.v_df = None
-                    st.warning(f"Topic '{selected_assessment}' not found in target file.")
             else:
                 df, _ = load_data(v_file, v_file_ext, key_suffix="val")
                 if df is not None:
@@ -282,6 +338,10 @@ if "v_df" not in st.session_state:
     
 b_df = st.session_state.get("b_df")
 v_df = st.session_state.get("v_df")
+
+# After loading data for b_df and v_df, call ensure_seconds_column
+b_df = ensure_seconds_column(b_df)
+v_df = ensure_seconds_column(v_df)
 
 # Main layout
 col_main1, col_main2 = st.columns([0.25, 0.75])
@@ -342,23 +402,55 @@ with col_main2:
                     col1, col2, col3 = st.columns([0.20, 0.60, 0.20])
                     with col1:
                         st.markdown("#### 📈 Parameters")
-                        x_axis = st.selectbox("X-Axis", ["None"] + common_cols, key="x_axis_select")
-                        y_axis = st.selectbox("Y-Axis", ["None"] + common_cols, key="y_axis_select")
-                        z_threshold = st.slider("Z-Score Threshold", 1.0, 5.0, 3.0, 0.1, key="z-slider")
-            
+                        # Define allowed columns for axes
+                        if 'selected_assessment' in locals() and isinstance(selected_assessment, str) and selected_assessment != "None":
+                            allowed_y_axis = ASSESSMENT_Y_AXIS_MAP.get(selected_assessment, [])
+                            allowed_y_axis = [col for col in allowed_y_axis if col in b_df.columns]
+                            if not allowed_y_axis:
+                                allowed_y_axis = list(b_df.columns)
+                            ALLOWED_X_AXIS = ["Index", "timestamp", "timestamp_seconds"] + [col for col in allowed_y_axis if col not in ["Index", "timestamp", "timestamp_seconds"]]
+                        else:
+                            allowed_y_axis = list(common_cols)  # For CSV or no assessment, use all columns
+                            ALLOWED_X_AXIS = ["Index", "timestamp", "timestamp_seconds"] + [col for col in allowed_y_axis if col not in ["Index", "timestamp", "timestamp_seconds"]]
+                        y_axis_options = allowed_y_axis
+
+                        x_axis = st.selectbox("X-Axis", ["None"] + ALLOWED_X_AXIS, key="x_axis_select")
+                        y_axis = st.selectbox("Y-Axis", ["None"] + y_axis_options, key="y_axis_select")
                         if x_axis == "None" and y_axis == "None":
                             st.info("📌 Please select valid X and Y axes to compare.")
-                        elif x_axis is not None and y_axis is not None:
-                            x_min = st.number_input("X min", value=float(b_df[x_axis].min()))
-                            x_max = st.number_input("X max", value=float(b_df[x_axis].max()))
-                            y_min = st.number_input("Y min", value=float(b_df[y_axis].min()))
-                            y_max = st.number_input("Y max", value=float(b_df[y_axis].max()))
+                        elif x_axis == "None":
+                            st.info("📌 Please select a valid X axis.")
+                        elif y_axis == "None":
+                            st.info("📌 Please select a valid Y axis.")
+                        else:
+                            z_threshold = st.slider("Z-Score Threshold", 1.0, 5.0, 3.0, 0.1, key="z-slider-comparative")
+                            x_min = st.number_input("X min", value=float(b_df[x_axis].min()), key="x_min_param")
+                            x_max = st.number_input("X max", value=float(b_df[x_axis].max()), key="x_max_param")
+                            y_min = st.number_input("Y min", value=float(b_df[y_axis].min()), key="y_min_param")
+                            y_max = st.number_input("Y max", value=float(b_df[y_axis].max()), key="y_max_param")
         
                             # Filter data
                             b_filtered = b_df[(b_df[x_axis] >= x_min) & (b_df[x_axis] <= x_max) &
                                               (b_df[y_axis] >= y_min) & (b_df[y_axis] <= y_max)]
                             v_filtered = v_df[(v_df[x_axis] >= x_min) & (v_df[x_axis] <= x_max) &
                                               (v_df[y_axis] >= y_min) & (v_df[y_axis] <= y_max)]
+        
+                            if x_axis == 'timestamp_seconds':
+                                try:
+                                    b_filtered, v_filtered, common_time = resample_to_common_time(b_filtered, v_filtered, freq=1.0)
+                                    st.info(f"Resampled to 1 second intervals. Overlapping time: {common_time[0]:.2f} to {common_time[-1]:.2f} s. Points: {len(common_time)}")
+                                    if y_axis not in b_filtered.columns or y_axis not in v_filtered.columns:
+                                        st.warning("Selected Y-axis not found in both files after resampling.")
+                                    elif b_filtered[y_axis].isnull().all() or v_filtered[y_axis].isnull().all():
+                                        st.warning("No valid data in one or both files for the selected Y-axis after resampling.")
+                                except Exception as e:
+                                    st.warning(f"Resampling failed: {e}")
+        
+                            if y_axis == "discharged_mah":
+                                if "discharged_mah" in b_filtered.columns:
+                                    b_filtered["discharged_mah"] = b_filtered["discharged_mah"] - b_filtered["discharged_mah"].min()
+                                if "discharged_mah" in v_filtered.columns:
+                                    v_filtered["discharged_mah"] = v_filtered["discharged_mah"] - v_filtered["discharged_mah"].min()
         
                             merged = pd.merge(b_filtered, v_filtered, on=x_axis, suffixes=('_benchmark', '_validation'))
                             
@@ -373,43 +465,91 @@ with col_main2:
                                 abnormal_points = merged[merged["Abnormal"]]
                                 
                     with col2:
-                        if x_axis == "None" and y_axis == "None":
-                            st.info("📌 Please select valid X and Y axes to compare.")
-                        else:
+                        if x_axis != "None" and y_axis != "None":
                             st.markdown("<div style='min-height: 10px'>", unsafe_allow_html=True)
                             st.markdown("</div>", unsafe_allow_html=True)
                             st.markdown("### 🧮 Plot Visualization")
-                            fig = go.Figure()
-                            fig = make_subplots(rows=2, cols=1, subplot_titles=["Benchmark", "Target"], shared_yaxes=True)
-            
-                            fig.add_trace(go.Scatter(x=merged[x_axis], y=merged[f"{y_axis}_benchmark"], name="Benchmark", mode="lines"), row=1, col=1)
-                            fig.add_trace(go.Scatter(x=merged[x_axis], y=merged[f"{y_axis}_validation"], name="Target", mode="lines"), row=2, col=1)
-                            fig.add_trace(go.Scatter(x=abnormal_points[x_axis], y=abnormal_points[f"{y_axis}_validation"],
-                                                     mode='markers', marker=dict(color='red', size=6),
-                                                     name="Abnormal"), row=2, col=1)
-            
-                            fig.update_layout(legend=dict(orientation="h", yanchor="bottom", y=1.05, xanchor="center", x=0.5),
-                            height=700, width=1000, title_text="Benchmark vs Target Subplot")
+                            
+                            # Create subplots with shared x-axis
+                            fig = make_subplots(rows=2, cols=1, 
+                                              shared_xaxes=True,
+                                              vertical_spacing=0.15,
+                                              subplot_titles=("Benchmark Data", "Target Data"))
+                            
+                            # Add benchmark data
+                            fig.add_trace(go.Scatter(
+                                x=merged[x_axis],
+                                y=merged[bench_col],
+                                mode='lines',
+                                name='Benchmark',
+                                line=dict(color='blue', width=2)
+                            ), row=1, col=1)
+                            
+                            # Add validation data
+                            fig.add_trace(go.Scatter(
+                                x=merged[x_axis],
+                                y=merged[val_col],
+                                mode='lines',
+                                name='Target',
+                                line=dict(color='green', width=2)
+                            ), row=2, col=1)
+                            
+                            # Add abnormal points to target plot
+                            if not abnormal_points.empty:
+                                fig.add_trace(go.Scatter(
+                                    x=abnormal_points[x_axis],
+                                    y=abnormal_points[val_col],
+                                    mode='markers',
+                                    marker=dict(color='red', size=8),
+                                    name='Abnormal Points'
+                                ), row=2, col=1)
+                            
+                            # Update layout
+                            fig.update_layout(
+                                height=800,
+                                showlegend=True,
+                                legend=dict(
+                                    orientation="h",
+                                    yanchor="bottom",
+                                    y=1.10,
+                                    xanchor="center",
+                                    x=0.5
+                                ),
+                                xaxis2_title=x_axis,
+                                yaxis1_title=y_axis,
+                                yaxis2_title=y_axis,
+                                margin=dict(t=50, b=50)
+                            )
+                            
+                            # Update x and y axes
+                            fig.update_xaxes(title_text=x_axis, row=1, col=1, showticklabels=True)
+                            fig.update_xaxes(title_text=x_axis, row=2, col=1, showticklabels=True)
+                            
+                            # Add hover mode
+                            fig.update_layout(hovermode='x unified')
+                            
+                            # Display the plot
                             st.plotly_chart(fig, use_container_width=True)
-            
+
                     with col3:
-                        if x_axis == "None" and y_axis == "None":
-                            st.info("📌 Please select valid X and Y axes to compare.")
-                        else:
+                        if x_axis != "None" and y_axis != "None":
                             st.markdown("<div style='min-height: 10px'>", unsafe_allow_html=True)
                             st.markdown("</div>", unsafe_allow_html=True)
                             st.markdown("### 🎯 Metrics")
                             rmse = np.sqrt(mean_squared_error(merged[bench_col], merged[val_col]))
-                            similarity = 1 - (rmse / (merged[bench_col].max() - merged[bench_col].min()))
-            
+                            bench_range = merged[bench_col].max() - merged[bench_col].min()
+                            if bench_range == 0:
+                                similarity = 1.0 if rmse == 0 else 0.0
+                            else:
+                                similarity = 1 - (rmse / bench_range)
                             similarity_index = similarity*100
-                            
+
                             fig = make_subplots(
                                 rows=3, cols=1,
                                 specs=[[{"type": "indicator"}], [{"type": "indicator"}], [{"type": "indicator"}]],
                                 vertical_spacing=0.05
                             )
-            
+
                             fig.add_trace(go.Indicator(
                                 mode="gauge+number+delta",
                                 value=similarity_index,
@@ -430,7 +570,7 @@ with col_main2:
                                     }
                                 }
                             ), row=1, col=1)
-                                
+
                             rmse_value = float(rmse)
                             fig.add_trace(go.Indicator(
                                 mode="gauge+number",
@@ -446,7 +586,7 @@ with col_main2:
                                     ]
                                 }
                             ), row=2, col=1)
-            
+
                             abnormal_count = int(abnormal_mask.sum())
                             fig.add_trace(go.Indicator(
                                 mode="gauge+number",
@@ -462,9 +602,9 @@ with col_main2:
                                     ]
                                 }
                             ), row=3, col=1)
-                                
+
                             fig.update_layout(height=700, margin=dict(t=10, b=10))
-                            st.plotly_chart(fig, use_container_width=True)    
+                            st.plotly_chart(fig, use_container_width=True)
             
                 else:
                     st.warning("No common columns to compare between Benchmark and Validation.")
@@ -479,11 +619,28 @@ with col_main2:
                     col1, col2, col3 = st.columns([0.20, 0.60, 0.20])
                     with col1:
                         st.markdown("#### 📈 Parameters")
-                        x_axis = st.selectbox("X-Axis", ["None"] + list(df.columns), key="single_x_axis")
-                        y_axis = st.selectbox("Y-Axis", ["None"] + list(df.columns), key="single_y_axis")
-                        z_threshold = st.slider("Z-Score Threshold", 1.0, 5.0, 3.0, 0.1, key="single_z-slider")
-                        
-                        if x_axis != "None" and y_axis != "None":
+                        # Define allowed columns for axes
+                        if 'selected_assessment' in locals() and isinstance(selected_assessment, str) and selected_assessment != "None":
+                            allowed_y_axis = ASSESSMENT_Y_AXIS_MAP.get(selected_assessment, [])
+                            allowed_y_axis = [col for col in allowed_y_axis if col in df.columns]
+                            if not allowed_y_axis:
+                                allowed_y_axis = list(df.columns)
+                            ALLOWED_X_AXIS = ["Index", "timestamp", "timestamp_seconds"] + [col for col in allowed_y_axis if col not in ["Index", "timestamp", "timestamp_seconds"]]
+                        else:
+                            allowed_y_axis = list(df.columns)
+                            ALLOWED_X_AXIS = ["Index", "timestamp", "timestamp_seconds"] + [col for col in allowed_y_axis if col not in ["Index", "timestamp", "timestamp_seconds"]]
+                        y_axis_options = allowed_y_axis
+
+                        x_axis = st.selectbox("X-Axis", ["None"] + ALLOWED_X_AXIS, key="single_x_axis")
+                        y_axis = st.selectbox("Y-Axis", ["None"] + y_axis_options, key="single_y_axis")
+                        if x_axis == "None" and y_axis == "None":
+                            st.info("📌 Please select valid X and Y axes to compare.")
+                        elif x_axis == "None":
+                            st.info("📌 Please select a valid X axis.")
+                        elif y_axis == "None":
+                            st.info("📌 Please select a valid Y axis.")
+                        else:
+                            z_threshold = st.slider("Z-Score Threshold", 1.0, 5.0, 3.0, 0.1, key="z-slider-single")
                             x_min = st.number_input("X min", value=float(df[x_axis].min()))
                             x_max = st.number_input("X max", value=float(df[x_axis].max()))
                             y_min = st.number_input("Y min", value=float(df[y_axis].min()))
@@ -536,8 +693,7 @@ with col_main2:
                                 height=700
                             )
                             st.plotly_chart(fig, use_container_width=True)
-                        else:
-                            st.info("Please select both X and Y axes to visualize the data.")
+                        
                             
                     with col3:
                         if x_axis != "None" and y_axis != "None":
@@ -603,7 +759,6 @@ with col_main2:
                             
                             fig.update_layout(height=700, margin=dict(t=10, b=10))
                             st.plotly_chart(fig, use_container_width=True)
-                        else:
-                            st.info("Please select both X and Y axes to view metrics.")
         else:
-            st.info("Please upload at least one file to begin analysis.")
+            st.info("Please upload at least one file to begin analysis.")
+            
