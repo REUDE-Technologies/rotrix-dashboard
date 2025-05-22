@@ -405,12 +405,16 @@ with col_main2:
                         # Define allowed columns for axes
                         if 'selected_assessment' in locals() and isinstance(selected_assessment, str) and selected_assessment != "None":
                             allowed_y_axis = ASSESSMENT_Y_AXIS_MAP.get(selected_assessment, [])
+                            # Filter columns that actually exist in the dataframe
                             allowed_y_axis = [col for col in allowed_y_axis if col in b_df.columns]
                             if not allowed_y_axis:
                                 allowed_y_axis = list(b_df.columns)
+                            # Filter out non-numeric columns for better visualization
+                            allowed_y_axis = [col for col in allowed_y_axis if pd.api.types.is_numeric_dtype(b_df[col])]
                             ALLOWED_X_AXIS = ["Index", "timestamp", "timestamp_seconds"] + [col for col in allowed_y_axis if col not in ["Index", "timestamp", "timestamp_seconds"]]
                         else:
-                            allowed_y_axis = list(common_cols)  # For CSV or no assessment, use all columns
+                            # For non-topic files, only show numeric columns
+                            allowed_y_axis = [col for col in b_df.columns if pd.api.types.is_numeric_dtype(b_df[col])]
                             ALLOWED_X_AXIS = ["Index", "timestamp", "timestamp_seconds"] + [col for col in allowed_y_axis if col not in ["Index", "timestamp", "timestamp_seconds"]]
                         y_axis_options = allowed_y_axis
 
@@ -645,12 +649,16 @@ with col_main2:
                         # Define allowed columns for axes
                         if 'selected_assessment' in locals() and isinstance(selected_assessment, str) and selected_assessment != "None":
                             allowed_y_axis = ASSESSMENT_Y_AXIS_MAP.get(selected_assessment, [])
+                            # Filter columns that actually exist in the dataframe
                             allowed_y_axis = [col for col in allowed_y_axis if col in df.columns]
                             if not allowed_y_axis:
                                 allowed_y_axis = list(df.columns)
+                            # Filter out non-numeric columns for better visualization
+                            allowed_y_axis = [col for col in allowed_y_axis if pd.api.types.is_numeric_dtype(df[col])]
                             ALLOWED_X_AXIS = ["Index", "timestamp", "timestamp_seconds"] + [col for col in allowed_y_axis if col not in ["Index", "timestamp", "timestamp_seconds"]]
                         else:
-                            allowed_y_axis = list(df.columns)
+                            # For non-topic files, only show numeric columns
+                            allowed_y_axis = [col for col in df.columns if pd.api.types.is_numeric_dtype(df[col])]
                             ALLOWED_X_AXIS = ["Index", "timestamp", "timestamp_seconds"] + [col for col in allowed_y_axis if col not in ["Index", "timestamp", "timestamp_seconds"]]
                         y_axis_options = allowed_y_axis
 
