@@ -470,65 +470,88 @@ with col_main2:
                             st.markdown("</div>", unsafe_allow_html=True)
                             st.markdown("### 🧮 Plot Visualization")
                             
-                            # Create subplots with shared x-axis
-                            fig = make_subplots(rows=2, cols=1, 
-                                              shared_xaxes=True,
-                                              vertical_spacing=0.15,
-                                              subplot_titles=("Benchmark Data", "Target Data"))
+                            from plotly.subplots import make_subplots
+                            fig = make_subplots(
+                                rows=2, 
+                                cols=1, 
+                                shared_xaxes=True, 
+                                subplot_titles=("Benchmark", "Target"),
+                                vertical_spacing=0.15  # Increased vertical gap between subplots
+                            )
                             
                             # Add benchmark data
-                            fig.add_trace(go.Scatter(
-                                x=merged[x_axis],
-                                y=merged[bench_col],
-                                mode='lines',
-                                name='Benchmark',
-                                line=dict(color='blue', width=2)
-                            ), row=1, col=1)
+                            fig.add_trace(
+                                go.Scatter(
+                                    x=merged[x_axis], 
+                                    y=merged[bench_col], 
+                                    mode='lines', 
+                                    name='Benchmark', 
+                                    line=dict(color='blue')
+                                ), 
+                                row=1, 
+                                col=1
+                            )
                             
                             # Add validation data
-                            fig.add_trace(go.Scatter(
-                                x=merged[x_axis],
-                                y=merged[val_col],
-                                mode='lines',
-                                name='Target',
-                                line=dict(color='green', width=2)
-                            ), row=2, col=1)
+                            fig.add_trace(
+                                go.Scatter(
+                                    x=merged[x_axis], 
+                                    y=merged[val_col], 
+                                    mode='lines', 
+                                    name='Target', 
+                                    line=dict(color='green')
+                                ), 
+                                row=2, 
+                                col=1
+                            )
                             
                             # Add abnormal points to target plot
                             if not abnormal_points.empty:
-                                fig.add_trace(go.Scatter(
-                                    x=abnormal_points[x_axis],
-                                    y=abnormal_points[val_col],
-                                    mode='markers',
-                                    marker=dict(color='red', size=8),
-                                    name='Abnormal Points'
-                                ), row=2, col=1)
+                                fig.add_trace(
+                                    go.Scatter(
+                                        x=abnormal_points[x_axis], 
+                                        y=abnormal_points[val_col], 
+                                        mode='markers', 
+                                        marker=dict(color='red', size=8), 
+                                        name='Abnormal Points'
+                                    ), 
+                                    row=2, 
+                                    col=1
+                                )
                             
-                            # Update layout
+                            # Update layout with better spacing and formatting
                             fig.update_layout(
-                                height=800,
+                                height=900,
                                 showlegend=True,
                                 legend=dict(
                                     orientation="h",
                                     yanchor="bottom",
-                                    y=1.10,
+                                    y=1.05,
                                     xanchor="center",
                                     x=0.5
                                 ),
                                 xaxis2_title=x_axis,
                                 yaxis1_title=y_axis,
                                 yaxis2_title=y_axis,
-                                margin=dict(t=50, b=50)
+                                margin=dict(t=100),  # Add top margin for subplot titles
+                                xaxis=dict(
+                                    showticklabels=True,
+                                    title=x_axis
+                                ),
+                                xaxis2=dict(
+                                    showticklabels=True,
+                                    title=x_axis
+                                ),
+                                yaxis=dict(
+                                    showticklabels=True,
+                                    title=y_axis
+                                ),
+                                yaxis2=dict(
+                                    showticklabels=True,
+                                    title=y_axis
+                                )
                             )
                             
-                            # Update x and y axes
-                            fig.update_xaxes(title_text=x_axis, row=1, col=1, showticklabels=True)
-                            fig.update_xaxes(title_text=x_axis, row=2, col=1, showticklabels=True)
-                            
-                            # Add hover mode
-                            fig.update_layout(hovermode='x unified')
-                            
-                            # Display the plot
                             st.plotly_chart(fig, use_container_width=True)
 
                     with col3:
@@ -761,4 +784,3 @@ with col_main2:
                             st.plotly_chart(fig, use_container_width=True)
         else:
             st.info("Please upload at least one file to begin analysis.")
-            
