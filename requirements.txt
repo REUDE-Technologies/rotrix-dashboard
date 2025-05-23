@@ -9,4 +9,3 @@ seaborn
 scipy
 watchdog
 openpyxl
-open3d
