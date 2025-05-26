@@ -300,7 +300,7 @@ def add_remove_column(target_df, df_name="DataFrame"):
     return target_df
 
 # st.markdown("#### 🔼 Upload Benchmark & Validation Files")
-st.markdown("<h4 style='font-size:20px; color:#FFFF00;'>🔼 Upload Benchmark & Target Files</h4>", unsafe_allow_html=True)
+st.markdown("<h4 style='font-size:20px; color:#4B8BBE;'>🔼 Upload Benchmark & Target Files</h4>", unsafe_allow_html=True)
 
 # Simulate a topbar with two upload sections
 top_col1, top_col2, top_col3, top_col4 = st.columns(4)
