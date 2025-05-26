@@ -313,7 +313,9 @@ with top_col3:
     b_df = None
     if benchmark_files:
         selected_bench = st.selectbox("Select Benchmark File", ["None"] + benchmark_names)
-        if selected_bench != "None":
+        if selected_bench == "None":
+            st.session_state.b_df = None
+        else:
             b_file = benchmark_files[benchmark_names.index(selected_bench)]
             b_file_ext = os.path.splitext(b_file.name)[-1].lower()
             if b_file_ext == ".ulg":
@@ -341,12 +343,13 @@ with top_col4:
     v_df = None
     if validation_files:
         selected_val = st.selectbox("Select Target File", ["None"] + validation_names)
-        if selected_val != "None":
+        if selected_val == "None":
+            st.session_state.v_df = None
+        else:
             v_file = validation_files[validation_names.index(selected_val)]
             v_file_ext = os.path.splitext(v_file.name)[-1].lower()
             if v_file_ext == ".ulg":
                 v_dfs, v_topics = load_ulog(v_file)
-                
                 # Only show target topic selection if no benchmark file is selected
                 if not benchmark_files or selected_bench == "None":
                     # Show topic selection for target file independently
@@ -363,7 +366,6 @@ with top_col4:
                     selected_assessment = st.session_state.get("common_topic", "None")
                     assessment_to_topic = {a: t for t, a in TOPIC_ASSESSMENT_PAIRS}
                     selected_topic = assessment_to_topic[selected_assessment] if selected_assessment in assessment_to_topic else "None"
-                
                 if selected_topic != "None" and selected_topic in v_dfs:
                     st.session_state.v_df = v_dfs[selected_topic]
                 else:
