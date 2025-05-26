@@ -163,6 +163,40 @@ def resample_to_common_time(df1, df2, freq=1.0):
     df2_interp = df2.set_index('timestamp_seconds').interpolate(method='linear').reindex(common_time, method='nearest').reset_index().rename(columns={'index': 'timestamp_seconds'})
     return df1_interp, df2_interp, common_time
 
+def format_seconds_to_mmss(seconds):
+    """Convert seconds to MM:SS format"""
+    minutes = int(seconds // 60)
+    remaining_seconds = int(seconds % 60)
+    return f"{minutes:02d}:{remaining_seconds:02d}"
+
+def get_tick_spacing(data_range):
+    """Calculate appropriate tick spacing based on data range"""
+    if data_range <= 10:  # Less than 10 seconds
+        return 1  # Show every second
+    elif data_range <= 60:  # Less than 1 minute
+        return 10  # Show every 10 seconds
+    elif data_range <= 300:  # Less than 5 minutes
+        return 30  # Show every 30 seconds
+    elif data_range <= 600:  # Less than 10 minutes
+        return 60  # Show every minute
+    else:
+        return 120  # Show every 2 minutes
+
+def get_axis_title(axis_name):
+    """Get formatted axis title"""
+    if axis_name == 'timestamp_seconds':
+        return 'TIME(secs)'
+    return axis_name
+
+def get_timestamp_ticks(data):
+    """Generate evenly spaced timestamp ticks"""
+    if data is None or len(data) == 0:
+        return [], []
+    data_range = data.max() - data.min()
+    spacing = get_tick_spacing(data_range)
+    ticks = np.arange(data.min(), data.max() + spacing, spacing)
+    return ticks, [format_seconds_to_mmss(t) for t in ticks]
+
 # Load logic
 def load_data(file, filetype, key_suffix):
     if filetype == ".csv":
@@ -543,16 +577,22 @@ with tab1:
                             fig2 = go.Figure(go.Indicator(
                                 mode="gauge+number",
                                 value=similarity_index,
-                                title={'text': "Similarity Index"},
-                                number={'valueformat': '.2f'},
+                                title={'text': "Similarity Index (%)"},
+                                number={'valueformat': '.2f', 'suffix': '%'},
                                 domain={'x': [0.15, 0.85], 'y': [0, 1]},
                                 gauge={
-                                    'axis': {'range': [-1, 1], 'tickformat': '.2f'},
+                                    'axis': {'range': [0, 100], 'tickformat': '.0f'},
                                     'bar': {'color': "orange"},
                                     'steps': [
-                                        {'range': [-1, 0], 'color': "#d4f0ff"},
-                                        {'range': [0, 1], 'color': "#ffeaa7"}
-                                    ]
+                                        {'range': [0, 33], 'color': "#d4f0ff"},
+                                        {'range': [33, 66], 'color': "#ffeaa7"},
+                                        {'range': [66, 100], 'color': "#c8e6c9"}
+                                    ],
+                                    'threshold': {
+                                        'line': {'color': "red", 'width': 4},
+                                        'thickness': 0.75,
+                                        'value': 50
+                                    }
                                 }
                             ))
                             fig2.update_layout(width=200, height=140, margin=dict(t=60, b=10))
@@ -605,6 +645,13 @@ with tab1:
                                         name='Abnormal Points'
                                     ), 
                                 )
+                            
+                            # Get timestamp ticks if needed
+                            if x_axis == 'timestamp_seconds':
+                                tick_vals, tick_texts = get_timestamp_ticks(merged[x_axis])
+                            else:
+                                tick_vals, tick_texts = None, None
+                                
                             fig.update_layout(
                                 height=900,
                                 showlegend=True,
@@ -618,7 +665,10 @@ with tab1:
                                 margin=dict(t=100),
                                 xaxis=dict(
                                     showticklabels=True,
-                                    title=x_axis
+                                    title=get_axis_title(x_axis),
+                                    tickvals=tick_vals,
+                                    ticktext=tick_texts,
+                                    type='linear'
                                 ),
                                 yaxis=dict(
                                     showticklabels=True,
@@ -656,6 +706,13 @@ with tab1:
                                         name='Abnormal Points'
                                     ), row=2, col=1
                                 )
+                                
+                            # Get timestamp ticks if needed
+                            if x_axis == 'timestamp_seconds':
+                                tick_vals, tick_texts = get_timestamp_ticks(merged[x_axis])
+                            else:
+                                tick_vals, tick_texts = None, None
+                                
                             fig.update_layout(
                                 height=900,
                                 showlegend=True,
@@ -669,7 +726,10 @@ with tab1:
                                 margin=dict(t=100),
                                 xaxis=dict(
                                     showticklabels=True,
-                                    title=x_axis
+                                    title=get_axis_title(x_axis),
+                                    tickvals=tick_vals,
+                                    ticktext=tick_texts,
+                                    type='linear'
                                 ),
                                 yaxis=dict(
                                     showticklabels=True,
@@ -677,7 +737,10 @@ with tab1:
                                 ),
                                 xaxis2=dict(
                                     showticklabels=True,
-                                    title=x_axis
+                                    title=get_axis_title(x_axis),
+                                    tickvals=tick_vals,
+                                    ticktext=tick_texts,
+                                    type='linear'
                                 ),
                                 yaxis2=dict(
                                     showticklabels=True,
@@ -826,6 +889,12 @@ with tab1:
                         fig.add_hline(y=mean_value, line_dash="dash", line_color="green",
                                     annotation_text=f"Mean: {mean_value:.2f}")
                         
+                        # Get timestamp ticks if needed
+                        if x_axis == 'timestamp_seconds':
+                            tick_vals, tick_texts = get_timestamp_ticks(filtered_df[x_axis])
+                        else:
+                            tick_vals, tick_texts = None, None
+                            
                         fig.update_layout(
                             height=900,
                             showlegend=True,
@@ -839,7 +908,10 @@ with tab1:
                             margin=dict(t=100),  # Add top margin for subplot titles
                             xaxis=dict(
                                 showticklabels=True,
-                                title=x_axis
+                                title=get_axis_title(x_axis),
+                                tickvals=tick_vals,
+                                ticktext=tick_texts,
+                                type='linear'
                             ),
                             yaxis=dict(
                                 showticklabels=True,
