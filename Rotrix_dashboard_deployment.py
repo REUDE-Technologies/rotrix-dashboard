@@ -86,12 +86,12 @@ def load_ulog(file, key_suffix=""):
     
     return filtered_dfs, topic_names
 
-def detect_trend(series):
-    if series.iloc[-1] > series.iloc[0]:
-        return "increasing"
-    elif series.iloc[-1] < series.iloc[0]:
-        return "decreasing"
-    return "flat"
+# def detect_trend(series):
+#     if series.iloc[-1] > series.iloc[0]:
+#         return "increasing"
+#     elif series.iloc[-1] < series.iloc[0]:
+#         return "decreasing"
+#     return "flat"
 
 def detect_abnormalities(series, threshold=3.0):
     z_scores = np.abs((series - series.mean()) / series.std())
@@ -479,21 +479,31 @@ with tab1:
                             allowed_y_axis = list(b_df.columns)
                         # Filter out non-numeric columns for better visualization
                         allowed_y_axis = [col for col in allowed_y_axis if pd.api.types.is_numeric_dtype(b_df[col])]
-                        ALLOWED_X_AXIS = ["Index", "timestamp", "timestamp_seconds"] + [col for col in allowed_y_axis if col not in ["Index", "timestamp", "timestamp_seconds"]]
+                        ALLOWED_X_AXIS = ["Index", "timestamp_seconds"] + [col for col in allowed_y_axis if col not in ["Index", "timestamp_seconds"]]
                     else:
                         # For non-topic files, only show numeric columns
                         allowed_y_axis = [col for col in b_df.columns if pd.api.types.is_numeric_dtype(b_df[col])]
-                        ALLOWED_X_AXIS = ["Index", "timestamp", "timestamp_seconds"] + [col for col in allowed_y_axis if col not in ["Index", "timestamp", "timestamp_seconds"]]
+                        ALLOWED_X_AXIS = ["Index", "timestamp_seconds"] + [col for col in allowed_y_axis if col not in ["Index", "timestamp_seconds"]]
+                    x_axis_options = ALLOWED_X_AXIS
                     y_axis_options = allowed_y_axis
-
-                    x_axis = st.selectbox("X-Axis", ["None"] + ALLOWED_X_AXIS, key="x_axis_select")
-                    y_axis = st.selectbox("Y-Axis", ["None"] + y_axis_options, key="y_axis_select")
-                    if x_axis == "None" and y_axis == "None":
+                    # Set default x_axis to 'Index', y_axis to first numeric column
+                    default_x = 'Index' if 'Index' in x_axis_options else x_axis_options[0]
+                    # If CSV and cD2detailpeak exists, use as default y if x is Index
+                    if b_df is not None and v_df is not None and hasattr(b_df, 'columns') and hasattr(v_df, 'columns'):
+                        if 'cD2detailpeak' in b_df.columns and 'cD2detailpeak' in v_df.columns:
+                            default_y = 'cD2detailpeak' if default_x == 'Index' else (y_axis_options[0] if y_axis_options else None)
+                        else:
+                            default_y = y_axis_options[0] if y_axis_options else None
+                    else:
+                        default_y = y_axis_options[0] if y_axis_options else None
+                    x_axis = st.selectbox("X-Axis", x_axis_options, key="x_axis_select", index=x_axis_options.index(default_x))
+                    # If user selects Index for both, force y to cD2detailpeak if available
+                    if x_axis == 'Index' and 'cD2detailpeak' in y_axis_options:
+                        y_axis = st.selectbox("Y-Axis", y_axis_options, key="y_axis_select", index=y_axis_options.index('cD2detailpeak'))
+                    else:
+                        y_axis = st.selectbox("Y-Axis", y_axis_options, key="y_axis_select", index=y_axis_options.index(default_y) if default_y in y_axis_options else 0)
+                    if not x_axis or not y_axis:
                         st.info("📌 Please select valid X and Y axes to compare.")
-                    elif x_axis == "None":
-                        st.info("📌 Please select a valid X axis.")
-                    elif y_axis == "None":
-                        st.info("📌 Please select a valid Y axis.")
                     else:
                         z_threshold = st.slider("Z-Score Threshold", 1.0, 5.0, 3.0, 0.1, key="z-slider-comparative")
                         x_min = st.number_input("X min", value=float(b_df[x_axis].min()), key="x_min_param")
@@ -792,21 +802,31 @@ with tab1:
                             allowed_y_axis = list(df.columns)
                         # Filter out non-numeric columns for better visualization
                         allowed_y_axis = [col for col in allowed_y_axis if pd.api.types.is_numeric_dtype(df[col])]
-                        ALLOWED_X_AXIS = ["Index", "timestamp", "timestamp_seconds"] + [col for col in allowed_y_axis if col not in ["Index", "timestamp", "timestamp_seconds"]]
+                        ALLOWED_X_AXIS = ["Index", "timestamp_seconds"] + [col for col in allowed_y_axis if col not in ["Index", "timestamp_seconds"]]
                     else:
                         # For non-topic files, only show numeric columns
                         allowed_y_axis = [col for col in df.columns if pd.api.types.is_numeric_dtype(df[col])]
-                        ALLOWED_X_AXIS = ["Index", "timestamp", "timestamp_seconds"] + [col for col in allowed_y_axis if col not in ["Index", "timestamp", "timestamp_seconds"]]
+                        ALLOWED_X_AXIS = ["Index", "timestamp_seconds"] + [col for col in allowed_y_axis if col not in ["Index", "timestamp_seconds"]]
+                    x_axis_options = ALLOWED_X_AXIS
                     y_axis_options = allowed_y_axis
-
-                    x_axis = st.selectbox("X-Axis", ["None"] + ALLOWED_X_AXIS, key="single_x_axis")
-                    y_axis = st.selectbox("Y-Axis", ["None"] + y_axis_options, key="single_y_axis")
-                    if x_axis == "None" and y_axis == "None":
+                    # Set default x_axis to 'Index', y_axis to first numeric column
+                    default_x = 'Index' if 'Index' in x_axis_options else x_axis_options[0]
+                    # If CSV and cD2detailpeak exists, use as default y if x is Index
+                    if df is not None and hasattr(df, 'columns'):
+                        if 'cD2detailpeak' in df.columns:
+                            default_y = 'cD2detailpeak' if default_x == 'Index' else (y_axis_options[0] if y_axis_options else None)
+                        else:
+                            default_y = y_axis_options[0] if y_axis_options else None
+                    else:
+                        default_y = y_axis_options[0] if y_axis_options else None
+                    x_axis = st.selectbox("X-Axis", x_axis_options, key="single_x_axis", index=x_axis_options.index(default_x))
+                    # If user selects Index for both, force y to cD2detailpeak if available
+                    if x_axis == 'Index' and 'cD2detailpeak' in y_axis_options:
+                        y_axis = st.selectbox("Y-Axis", y_axis_options, key="single_y_axis", index=y_axis_options.index('cD2detailpeak'))
+                    else:
+                        y_axis = st.selectbox("Y-Axis", y_axis_options, key="single_y_axis", index=y_axis_options.index(default_y) if default_y in y_axis_options else 0)
+                    if not x_axis or not y_axis:
                         st.info("📌 Please select valid X and Y axes to compare.")
-                    elif x_axis == "None":
-                        st.info("📌 Please select a valid X axis.")
-                    elif y_axis == "None":
-                        st.info("📌 Please select a valid Y axis.")
                     else:
                         z_threshold = st.slider("Z-Score Threshold", 1.0, 5.0, 3.0, 0.1, key="z-slider-single")
                         x_min = st.number_input("X min", value=float(df[x_axis].min()))
