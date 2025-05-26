@@ -313,9 +313,7 @@ with top_col3:
     b_df = None
     if benchmark_files:
         selected_bench = st.selectbox("Select Benchmark File", ["None"] + benchmark_names)
-        if selected_bench == "None":
-            st.session_state.b_df = None
-        else:
+        if selected_bench != "None":
             b_file = benchmark_files[benchmark_names.index(selected_bench)]
             b_file_ext = os.path.splitext(b_file.name)[-1].lower()
             if b_file_ext == ".ulg":
@@ -343,13 +341,12 @@ with top_col4:
     v_df = None
     if validation_files:
         selected_val = st.selectbox("Select Target File", ["None"] + validation_names)
-        if selected_val == "None":
-            st.session_state.v_df = None
-        else:
+        if selected_val != "None":
             v_file = validation_files[validation_names.index(selected_val)]
             v_file_ext = os.path.splitext(v_file.name)[-1].lower()
             if v_file_ext == ".ulg":
                 v_dfs, v_topics = load_ulog(v_file)
+                
                 # Only show target topic selection if no benchmark file is selected
                 if not benchmark_files or selected_bench == "None":
                     # Show topic selection for target file independently
@@ -366,6 +363,7 @@ with top_col4:
                     selected_assessment = st.session_state.get("common_topic", "None")
                     assessment_to_topic = {a: t for t, a in TOPIC_ASSESSMENT_PAIRS}
                     selected_topic = assessment_to_topic[selected_assessment] if selected_assessment in assessment_to_topic else "None"
+                
                 if selected_topic != "None" and selected_topic in v_dfs:
                     st.session_state.v_df = v_dfs[selected_topic]
                 else:
@@ -463,10 +461,7 @@ with tab1:
             st.subheader("Comparative Analysis")
             b_df.insert(0, "Index", range(1, len(b_df) + 1))
             v_df.insert(0, "Index", range(1, len(v_df) + 1))
-
-            # Add radio button for plot mode
-            plot_mode = st.radio("Plot Mode", ["Superimposed", "Separate"], horizontal=True, key="comparative_plot_mode")
-
+            
             common_cols = list(set(b_df.columns) & set(v_df.columns))
             if common_cols:
                 col1, col2 = st.columns([0.20, 0.80])
@@ -512,6 +507,7 @@ with tab1:
                         x_max = st.number_input("X max", value=float(b_df[x_axis].max()), key="x_max_param")
                         y_min = st.number_input("Y min", value=float(b_df[y_axis].min()), key="y_min_param")
                         y_max = st.number_input("Y max", value=float(b_df[y_axis].max()), key="y_max_param")
+                        plot_mode = st.radio("Plot Mode", ["Superimposed", "Separate"], horizontal=True, key="comparative_plot_mode")
     
                         # Filter data
                         b_filtered = b_df[(b_df[x_axis] >= x_min) & (b_df[x_axis] <= x_max) &
@@ -698,7 +694,7 @@ with tab1:
                             st.plotly_chart(fig, use_container_width=True)
                         else:  # Separate
                             from plotly.subplots import make_subplots
-                            fig = make_subplots(rows=2, cols=1, shared_xaxes=True, subplot_titles=("Benchmark", "Target"))
+                            fig = make_subplots(rows=2, cols=1, shared_xaxes=True, subplot_titles=("Benchmark", "Target"), vertical_spacing=0.2)
                             # Benchmark plot
                             fig.add_trace(go.Scatter(
                                 x=merged[x_axis],
