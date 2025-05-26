@@ -675,6 +675,14 @@ with tab1:
                                     title=y_axis
                                 )
                             )
+                            # Robustly set x-axis ticks/labels for timestamp_seconds
+                            if x_axis == 'timestamp_seconds' and tick_vals is not None and tick_texts is not None:
+                                fig.update_xaxes(
+                                    tickvals=tick_vals,
+                                    ticktext=tick_texts,
+                                    title_text=get_axis_title(x_axis),
+                                    type='linear'
+                                )
                             st.plotly_chart(fig, use_container_width=True)
                         else:  # Separate
                             from plotly.subplots import make_subplots
@@ -747,6 +755,22 @@ with tab1:
                                     title=y_axis
                                 )
                             )
+                            # Robustly set x-axis ticks/labels for timestamp_seconds in both subplots
+                            if x_axis == 'timestamp_seconds' and tick_vals is not None and tick_texts is not None:
+                                fig.update_xaxes(
+                                    tickvals=tick_vals,
+                                    ticktext=tick_texts,
+                                    title_text=get_axis_title(x_axis),
+                                    type='linear',
+                                    row=1, col=1
+                                )
+                                fig.update_xaxes(
+                                    tickvals=tick_vals,
+                                    ticktext=tick_texts,
+                                    title_text=get_axis_title(x_axis),
+                                    type='linear',
+                                    row=2, col=1
+                                )
                             st.plotly_chart(fig, use_container_width=True)
 
         # Single file analysis
@@ -918,6 +942,14 @@ with tab1:
                                 title=y_axis
                             )
                         )
+                        # Robustly set x-axis ticks/labels for timestamp_seconds
+                        if x_axis == 'timestamp_seconds' and tick_vals is not None and tick_texts is not None:
+                            fig.update_xaxes(
+                                tickvals=tick_vals,
+                                ticktext=tick_texts,
+                                title_text=get_axis_title(x_axis),
+                                type='linear'
+                            )
                         st.plotly_chart(fig, use_container_width=True)
     else:
         st.info("Please upload at least one file to begin analysis.")
