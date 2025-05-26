@@ -332,6 +332,8 @@ with top_col3:
                 df, _ = load_data(b_file, b_file_ext, key_suffix="bench")
                 if df is not None:
                     st.session_state.b_df = df
+        else:
+            st.session_state.b_df = None
         
 with top_col2:
     validation_files = st.file_uploader("📂 Upload Target File", type=["csv", "pcd", "ulg"], accept_multiple_files=True)
@@ -372,7 +374,9 @@ with top_col4:
                 df, _ = load_data(v_file, v_file_ext, key_suffix="val")
                 if df is not None:
                     st.session_state.v_df = df
-        
+        else:
+            st.session_state.v_df = None
+    
 if "b_df" not in st.session_state:
     st.session_state.b_df = None
 if "v_df" not in st.session_state:
@@ -448,8 +452,6 @@ with tab2:
         st.info("No data uploaded yet.")
     
 with tab1:
-    st.subheader(" 🔍 Data Analysis")
-    
     # Get the active dataframe(s)
     b_df = st.session_state.get("b_df")
     v_df = st.session_state.get("v_df")
@@ -458,9 +460,12 @@ with tab1:
     if b_df is not None or v_df is not None:
         # If both files are loaded, do comparative analysis
         if b_df is not None and v_df is not None:
-            st.subheader("Comparative Analysis")
-            b_df.insert(0, "Index", range(1, len(b_df) + 1))
-            v_df.insert(0, "Index", range(1, len(v_df) + 1))
+            st.markdown("### 🔍 Data Analysis [Comparative Mode]")
+            # Only add Index column if it doesn't exist
+            if 'Index' not in b_df.columns:
+                b_df.insert(0, "Index", range(1, len(b_df) + 1))
+            if 'Index' not in v_df.columns:
+                v_df.insert(0, "Index", range(1, len(v_df) + 1))
             
             common_cols = list(set(b_df.columns) & set(v_df.columns))
             if common_cols:
@@ -785,8 +790,10 @@ with tab1:
         else:
             df = b_df if b_df is not None else v_df
             if df is not None:  # Add explicit None check
-                st.subheader("Single File Analysis")
-                df.insert(0, "Index", range(1, len(df) + 1))
+                st.markdown("### 🔍 Data Analysis [Single File Mode]")
+                # Only add Index column if it doesn't exist
+                if 'Index' not in df.columns:
+                    df.insert(0, "Index", range(1, len(df) + 1))
                 
                 col1, col2 = st.columns([0.20, 0.80])
                 with col1:
