@@ -1,4 +1,4 @@
-# Modified script to support both single file analysis and comparative assessment modes
+#Modified script to support both single file analysis and comparative assessment modes
 
 
 import streamlit as st
@@ -106,34 +106,43 @@ def convert_timestamps_to_seconds(df):
     for col in timestamp_cols:
         # If numeric, check for ms/us and convert
         if pd.api.types.is_numeric_dtype(df[col]):
-            if df[col].max() > 1e12:
-                df[col] = df[col] / 1e6  # microseconds to seconds
-            elif df[col].max() > 1e9:
-                df[col] = df[col] / 1e3  # milliseconds to seconds
-        # If datetime, convert to seconds from start
-        elif pd.api.types.is_datetime64_any_dtype(df[col]):
-            df[col] = (df[col] - df[col].min()).dt.total_seconds()
+            # Get the current topic from the dataframe name or context
+            current_topic = None
+            for topic, _ in TOPIC_ASSESSMENT_PAIRS:
+                if topic in str(df.name) if hasattr(df, 'name') else False:
+                    current_topic = topic
+                    break
+            df[col] = df[col] / 1000000
     return df
 
 def ensure_seconds_column(df):
-    """Ensure a 'timestamp_seconds' column exists and is always in seconds from start, using robust heuristics."""
+    """Ensure a 'timestamp_seconds' column exists and is always in seconds from start"""
     if df is None or df.empty:
         return df
     timestamp_col = next((col for col in df.columns if 'time' in col.lower() or 'timestamp' in col.lower()), None)
     if timestamp_col is None:
         return df
     series = df[timestamp_col]
-    # Heuristic: check the difference between first two values (if possible)
-    if len(series) > 1:
-        delta = series.iloc[1] - series.iloc[0]
-        if delta > 1e6:  # microseconds
+    
+    # Get the current topic from the dataframe name or context
+    current_topic = None
+    for topic, _ in TOPIC_ASSESSMENT_PAIRS:
+        if topic in str(df.name) if hasattr(df, 'name') else False:
+            current_topic = topic
+            break
+    
+    # Skip special conversion for Control topic
+    if current_topic == "px4io_status":  # Control topic
+        if series.max() > 1e12:
             df['timestamp_seconds'] = (series - series.min()) / 1e6
-        elif delta > 1e3:  # milliseconds
+        elif series.max() > 1e9:
             df['timestamp_seconds'] = (series - series.min()) / 1e3
-        else:  # already in seconds or close
+        else:
             df['timestamp_seconds'] = series - series.min()
     else:
-        df['timestamp_seconds'] = series - series.min()
+        # For all other topics, move decimal point 3 places to the left
+        df['timestamp_seconds'] = (series - series.min()) / 1000000
+    
     return df
 
 def resample_to_common_time(df1, df2, freq=1.0):
@@ -152,12 +161,25 @@ def resample_to_common_time(df1, df2, freq=1.0):
             df1 = df
         else:
             df2 = df
+
+    # Get the current topic from the dataframe name or context
+    current_topic = None
+    for topic, _ in TOPIC_ASSESSMENT_PAIRS:
+        if topic in str(df1.name) if hasattr(df1, 'name') else False:
+            current_topic = topic
+            break
+
+    # Use smaller frequency for Control topic to maintain linear display
+    if current_topic == "px4io_status":  # Control topic
+        freq = 0.1  # Use 0.1 second intervals for Control topic
+
     # Create a common time index (from max of min to min of max)
     start = max(df1['timestamp_seconds'].min(), df2['timestamp_seconds'].min())
     end = min(df1['timestamp_seconds'].max(), df2['timestamp_seconds'].max())
     if start >= end:
         raise ValueError("No overlapping time range for resampling.")
     common_time = np.arange(start, end, freq)
+    
     # Set index and interpolate
     df1_interp = df1.set_index('timestamp_seconds').interpolate(method='linear').reindex(common_time, method='nearest').reset_index().rename(columns={'index': 'timestamp_seconds'})
     df2_interp = df2.set_index('timestamp_seconds').interpolate(method='linear').reindex(common_time, method='nearest').reset_index().rename(columns={'index': 'timestamp_seconds'})
@@ -409,47 +431,104 @@ v_df = ensure_seconds_column(v_df)
 tab1, tab2 = st.tabs(["📊 Plot", "📋 Data"])
 with tab2:
     st.subheader("📁 Imported Data Preview")
-    # Data Analysis Settings moved here
-    st.markdown("<h4 style='font-size:18px; color:#0099ff;'>🔧 Data Analysis Settings</h4>", unsafe_allow_html=True)
-    selected_df = st.multiselect("Select DataFrame to Modify", ["Benchmark", "Target", "Both"], key='data_analysis')
-    if selected_df:  # Only process if something is selected
-        for param in selected_df:
-            if param == "Both":
-                st.session_state.b_df, st.session_state.v_df = add_remove_common_column(st.session_state.b_df, st.session_state.v_df)
-            elif param == "Benchmark":
-                st.session_state.b_df = add_remove_column(st.session_state.b_df, df_name="Benchmark")
-            elif param == "Target":
-                st.session_state.v_df = add_remove_column(st.session_state.v_df, df_name="Target")
-            if "Both" in selected_df and st.session_state.b_df is not None and st.session_state.v_df is not None:
-                st.markdown("##### ✏ Rename Column in Both")
-                common_cols = list(set(st.session_state.b_df.columns) & set(st.session_state.v_df.columns))
-                if common_cols:
-                    rename_col = st.selectbox("Select column to rename", common_cols, key="both_rename_col")
-                    new_name = st.text_input("New column name", key="both_rename_input")
-                    if st.button("Rename Column in Both", key="both_rename_button"):
-                        if rename_col and new_name:
-                            st.session_state.b_df.rename(columns={rename_col: new_name}, inplace=True)
-                            st.session_state.v_df.rename(columns={rename_col: new_name}, inplace=True)
-                            st.success(f"✏ Renamed column {rename_col} to {new_name} in both Benchmark and Target")
-    # Data preview as before
-    b_df = st.session_state.get("b_df")
-    v_df = st.session_state.get("v_df")
-    if b_df is not None and v_df is not None:
-        col1, col2 = st.columns(2)
-        with col1:
+    # Create a horizontal layout with 20-80 split
+    col1, col2 = st.columns([0.2, 0.8])
+    
+    with col1:
+        st.markdown("<h4 style='font-size:18px; color:#0099ff;'>🔧 Data Analysis Settings</h4>", unsafe_allow_html=True)
+        selected_df = st.multiselect("Select DataFrame to Modify", ["Benchmark", "Target", "Both"], key='data_analysis')
+        if selected_df:  # Only process if something is selected
+            for param in selected_df:
+                if param == "Both":
+                    st.session_state.b_df, st.session_state.v_df = add_remove_common_column(st.session_state.b_df, st.session_state.v_df)
+                elif param == "Benchmark":
+                    st.session_state.b_df = add_remove_column(st.session_state.b_df, df_name="Benchmark")
+                elif param == "Target":
+                    st.session_state.v_df = add_remove_column(st.session_state.v_df, df_name="Target")
+                if "Both" in selected_df and st.session_state.b_df is not None and st.session_state.v_df is not None:
+                    st.markdown("##### ✏ Rename Column in Both")
+                    common_cols = list(set(st.session_state.b_df.columns) & set(st.session_state.v_df.columns))
+                    if common_cols:
+                        rename_col = st.selectbox("Select column to rename", common_cols, key="both_rename_col")
+                        new_name = st.text_input("New column name", key="both_rename_input")
+                        if st.button("Rename Column in Both", key="both_rename_button"):
+                            if rename_col and new_name:
+                                st.session_state.b_df.rename(columns={rename_col: new_name}, inplace=True)
+                                st.session_state.v_df.rename(columns={rename_col: new_name}, inplace=True)
+                                st.success(f"✏ Renamed column {rename_col} to {new_name} in both Benchmark and Target")
+    
+    with col2:
+        # Data preview
+        b_df = st.session_state.get("b_df")
+        v_df = st.session_state.get("v_df")
+        # Get selected assessment/topic for axis filtering
+        selected_assessment_bench = st.session_state.get("common_topic", None)
+        selected_assessment_target = st.session_state.get("target_topic", None)
+        # For Benchmark
+        if b_df is not None and v_df is not None:
+            # Benchmark allowed columns
+            if selected_assessment_bench and selected_assessment_bench != "None" and selected_assessment_bench in ASSESSMENT_Y_AXIS_MAP:
+                allowed_b_cols = [col for col in ASSESSMENT_Y_AXIS_MAP[selected_assessment_bench] if col in b_df.columns and pd.api.types.is_numeric_dtype(b_df[col])]
+                for special_col in ["Index", "timestamp_seconds"]:
+                    if special_col in b_df.columns and special_col not in allowed_b_cols:
+                        allowed_b_cols = [special_col] + allowed_b_cols
+            else:
+                allowed_b_cols = [col for col in b_df.columns if pd.api.types.is_numeric_dtype(b_df[col])]
+                for special_col in ["Index", "timestamp_seconds"]:
+                    if special_col in b_df.columns and special_col not in allowed_b_cols:
+                        allowed_b_cols = [special_col] + allowed_b_cols
+            # Target allowed columns (robust logic)
+            # Prefer 'common_topic' if present and not None, else fallback to 'target_topic'
+            selected_assessment_target_final = None
+            if selected_assessment_bench and selected_assessment_bench != "None" and selected_assessment_bench in ASSESSMENT_Y_AXIS_MAP:
+                selected_assessment_target_final = selected_assessment_bench
+            elif selected_assessment_target and selected_assessment_target != "None" and selected_assessment_target in ASSESSMENT_Y_AXIS_MAP:
+                selected_assessment_target_final = selected_assessment_target
+            if selected_assessment_target_final:
+                allowed_v_cols = [col for col in ASSESSMENT_Y_AXIS_MAP[selected_assessment_target_final] if col in v_df.columns and pd.api.types.is_numeric_dtype(v_df[col])]
+                for special_col in ["Index", "timestamp_seconds"]:
+                    if special_col in v_df.columns and special_col not in allowed_v_cols:
+                        allowed_v_cols = [special_col] + allowed_v_cols
+            else:
+                allowed_v_cols = [col for col in v_df.columns if pd.api.types.is_numeric_dtype(v_df[col])]
+                for special_col in ["Index", "timestamp_seconds"]:
+                    if special_col in v_df.columns and special_col not in allowed_v_cols:
+                        allowed_v_cols = [special_col] + allowed_v_cols
+            table_col1, table_col2 = st.columns(2)
+            with table_col1:
+                st.markdown("### 🧪 Benchmark Data")
+                st.dataframe(b_df[allowed_b_cols])
+            with table_col2:
+                st.markdown("### 🔬 Target Data")
+                st.dataframe(v_df[allowed_v_cols])
+        elif b_df is not None:
+            if selected_assessment_bench and selected_assessment_bench != "None" and selected_assessment_bench in ASSESSMENT_Y_AXIS_MAP:
+                allowed_b_cols = [col for col in ASSESSMENT_Y_AXIS_MAP[selected_assessment_bench] if col in b_df.columns and pd.api.types.is_numeric_dtype(b_df[col])]
+                for special_col in ["Index", "timestamp_seconds"]:
+                    if special_col in b_df.columns and special_col not in allowed_b_cols:
+                        allowed_b_cols = [special_col] + allowed_b_cols
+            else:
+                allowed_b_cols = [col for col in b_df.columns if pd.api.types.is_numeric_dtype(b_df[col])]
+                for special_col in ["Index", "timestamp_seconds"]:
+                    if special_col in b_df.columns and special_col not in allowed_b_cols:
+                        allowed_b_cols = [special_col] + allowed_b_cols
             st.markdown("### 🧪 Benchmark Data")
-            st.dataframe(b_df)
-        with col2:
+            st.dataframe(b_df[allowed_b_cols])
+        elif v_df is not None:
+            if selected_assessment_target and selected_assessment_target != "None" and selected_assessment_target in ASSESSMENT_Y_AXIS_MAP:
+                allowed_v_cols = [col for col in ASSESSMENT_Y_AXIS_MAP[selected_assessment_target] if col in v_df.columns and pd.api.types.is_numeric_dtype(v_df[col])]
+                for special_col in ["Index", "timestamp_seconds"]:
+                    if special_col in v_df.columns and special_col not in allowed_v_cols:
+                        allowed_v_cols = [special_col] + allowed_v_cols
+            else:
+                allowed_v_cols = [col for col in v_df.columns if pd.api.types.is_numeric_dtype(v_df[col])]
+                for special_col in ["Index", "timestamp_seconds"]:
+                    if special_col in v_df.columns and special_col not in allowed_v_cols:
+                        allowed_v_cols = [special_col] + allowed_v_cols
             st.markdown("### 🔬 Target Data")
-            st.dataframe(v_df)
-    elif b_df is not None:
-        st.markdown("### 🧪 Benchmark Data")
-        st.dataframe(b_df)
-    elif v_df is not None:
-        st.markdown("### 🔬 Target Data")
-        st.dataframe(v_df)
-    else:
-        st.info("No data uploaded yet.")
+            st.dataframe(v_df[allowed_v_cols])
+        else:
+            st.info("No data uploaded yet.")
     
 with tab1:
     # Get the active dataframe(s)
@@ -488,8 +567,11 @@ with tab1:
                         ALLOWED_X_AXIS = ["Index", "timestamp_seconds"] + [col for col in allowed_y_axis if col not in ["Index", "timestamp_seconds"]]
                     x_axis_options = ALLOWED_X_AXIS
                     y_axis_options = allowed_y_axis
-                    # Set default x_axis to 'Index', y_axis to first numeric column
-                    default_x = 'Index' if 'Index' in x_axis_options else x_axis_options[0]
+                    # Set default x_axis to 'Index' unless a topic is selected
+                    if 'selected_assessment' in locals() and isinstance(selected_assessment, str) and selected_assessment != "None":
+                        default_x = 'timestamp_seconds' if 'timestamp_seconds' in x_axis_options else ('Index' if 'Index' in x_axis_options else x_axis_options[0])
+                    else:
+                        default_x = 'Index' if 'Index' in x_axis_options else x_axis_options[0]
                     # If CSV and cD2detailpeak exists, use as default y if x is Index
                     if b_df is not None and v_df is not None and hasattr(b_df, 'columns') and hasattr(v_df, 'columns'):
                         if 'cD2detailpeak' in b_df.columns and 'cD2detailpeak' in v_df.columns:
@@ -522,8 +604,16 @@ with tab1:
     
                         if x_axis == 'timestamp_seconds':
                             try:
-                                b_filtered, v_filtered, common_time = resample_to_common_time(b_filtered, v_filtered, freq=1.0)
-                                st.info(f"Resampled to 1 second intervals. Overlapping time: {common_time[0]:.2f} to {common_time[-1]:.2f} s. Points: {len(common_time)}")
+                                b_filtered, v_filtered, common_time = resample_to_common_time(b_filtered, v_filtered)
+                                # Get the current topic to determine the frequency used
+                                current_topic = None
+                                for topic, _ in TOPIC_ASSESSMENT_PAIRS:
+                                    if topic in str(b_filtered.name) if hasattr(b_filtered, 'name') else False:
+                                        current_topic = topic
+                                        break
+                                
+                                freq_text = "0.1 second" if current_topic == "px4io_status" else "1 second"
+                                st.info(f"Resampled to {freq_text} intervals. Overlapping time: {common_time[0]:.2f} to {common_time[-1]:.2f} s. Points: {len(common_time)}")
                                 if y_axis not in b_filtered.columns or y_axis not in v_filtered.columns:
                                     st.warning("Selected Y-axis not found in both files after resampling.")
                                 elif b_filtered[y_axis].isnull().all() or v_filtered[y_axis].isnull().all():
@@ -814,8 +904,11 @@ with tab1:
                         ALLOWED_X_AXIS = ["Index", "timestamp_seconds"] + [col for col in allowed_y_axis if col not in ["Index", "timestamp_seconds"]]
                     x_axis_options = ALLOWED_X_AXIS
                     y_axis_options = allowed_y_axis
-                    # Set default x_axis to 'Index', y_axis to first numeric column
-                    default_x = 'Index' if 'Index' in x_axis_options else x_axis_options[0]
+                    # Set default x_axis to 'Index' unless a topic is selected
+                    if 'selected_assessment' in locals() and isinstance(selected_assessment, str) and selected_assessment != "None":
+                        default_x = 'timestamp_seconds' if 'timestamp_seconds' in x_axis_options else ('Index' if 'Index' in x_axis_options else x_axis_options[0])
+                    else:
+                        default_x = 'Index' if 'Index' in x_axis_options else x_axis_options[0]
                     # If CSV and cD2detailpeak exists, use as default y if x is Index
                     if df is not None and hasattr(df, 'columns'):
                         if 'cD2detailpeak' in df.columns:
@@ -842,6 +935,21 @@ with tab1:
                         # Filter data
                         filtered_df = df[(df[x_axis] >= x_min) & (df[x_axis] <= x_max) &
                                        (df[y_axis] >= y_min) & (df[y_axis] <= y_max)]
+                        
+                        # For Control topic, resample to maintain linear display
+                        if x_axis == 'timestamp_seconds':
+                            current_topic = None
+                            for topic, _ in TOPIC_ASSESSMENT_PAIRS:
+                                if topic in str(filtered_df.name) if hasattr(filtered_df, 'name') else False:
+                                    current_topic = topic
+                                    break
+                            
+                            if current_topic == "px4io_status":  # Control topic
+                                # Create a finer time index
+                                time_range = np.arange(filtered_df[x_axis].min(), filtered_df[x_axis].max(), 0.1)
+                                # Resample the data
+                                filtered_df = filtered_df.set_index(x_axis).reindex(time_range).interpolate(method='linear').reset_index()
+                                filtered_df.rename(columns={'index': x_axis}, inplace=True)
                         
                         # Calculate statistics and detect abnormalities
                         stats = filtered_df[y_axis].describe()
