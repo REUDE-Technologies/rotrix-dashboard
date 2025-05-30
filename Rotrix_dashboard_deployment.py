@@ -494,13 +494,13 @@ with tab2:
                 for special_col in ["Index", "timestamp_seconds"]:
                     if special_col in v_df.columns and special_col not in allowed_v_cols:
                         allowed_v_cols = [special_col] + allowed_v_cols
-            table_col1, table_col2 = st.columns(2)
+            table_col1, table_col2 = st.columns([0.5, 0.5])
             with table_col1:
                 st.markdown("### 🧪 Benchmark Data")
-                st.dataframe(b_df[allowed_b_cols])
+                st.dataframe(b_df[allowed_b_cols], use_container_width=True)
             with table_col2:
                 st.markdown("### 🔬 Target Data")
-                st.dataframe(v_df[allowed_v_cols])
+                st.dataframe(v_df[allowed_v_cols], use_container_width=True)
         elif b_df is not None:
             if selected_assessment_bench and selected_assessment_bench != "None" and selected_assessment_bench in ASSESSMENT_Y_AXIS_MAP:
                 allowed_b_cols = [col for col in ASSESSMENT_Y_AXIS_MAP[selected_assessment_bench] if col in b_df.columns and pd.api.types.is_numeric_dtype(b_df[col])]
@@ -513,7 +513,7 @@ with tab2:
                     if special_col in b_df.columns and special_col not in allowed_b_cols:
                         allowed_b_cols = [special_col] + allowed_b_cols
             st.markdown("### 🧪 Benchmark Data")
-            st.dataframe(b_df[allowed_b_cols])
+            st.dataframe(b_df[allowed_b_cols], use_container_width=True)
         elif v_df is not None:
             if selected_assessment_target and selected_assessment_target != "None" and selected_assessment_target in ASSESSMENT_Y_AXIS_MAP:
                 allowed_v_cols = [col for col in ASSESSMENT_Y_AXIS_MAP[selected_assessment_target] if col in v_df.columns and pd.api.types.is_numeric_dtype(v_df[col])]
@@ -526,7 +526,7 @@ with tab2:
                     if special_col in v_df.columns and special_col not in allowed_v_cols:
                         allowed_v_cols = [special_col] + allowed_v_cols
             st.markdown("### 🔬 Target Data")
-            st.dataframe(v_df[allowed_v_cols])
+            st.dataframe(v_df[allowed_v_cols], use_container_width=True)
         else:
             st.info("No data uploaded yet.")
     
