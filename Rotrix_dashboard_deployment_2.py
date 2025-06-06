@@ -1065,6 +1065,103 @@ elif st.session_state.current_page == 'comparative_analysis':
                         if x_axis == 'timestamp_seconds':
                             b_filtered, v_filtered, common_time = resample_to_common_time(b_filtered, v_filtered)
 
+                        # Calculate relative difference and combined statistics
+                        merged = pd.DataFrame()
+                        merged['benchmark'] = b_filtered[y_axis]
+                        merged['target'] = v_filtered[y_axis]
+                        
+                        # Calculate absolute and relative differences
+                        merged['abs_diff'] = abs(merged['target'] - merged['benchmark'])
+                        merged['rel_diff'] = merged['abs_diff'] / (abs(merged['benchmark']) + 1e-10)
+                        
+                        # Calculate rolling statistics
+                        window = min(50, max(20, len(merged) // 10))
+                        merged['rolling_mean'] = merged['abs_diff'].rolling(window=window, center=True).mean()
+                        merged['rolling_std'] = merged['abs_diff'].rolling(window=window, center=True).std()
+                        
+                        # Calculate metrics
+                        rmse = np.sqrt(np.mean((merged['target'] - merged['benchmark']) ** 2))
+                        bench_range = merged['benchmark'].max() - merged['benchmark'].min()
+                        similarity = 1 - (rmse / bench_range) if bench_range != 0 else (1.0 if rmse == 0 else 0.0)
+                        similarity_index = similarity * 100
+
+                        # Unified abnormal points detection
+                        merged["Difference"] = merged['target'] - merged['benchmark']
+                        merged["Z_Score"] = (merged["Difference"] - merged["Difference"].mean()) / merged["Difference"].std()
+                        abnormal_mask = abs(merged["Z_Score"]) > z_threshold
+                        abnormal_points = v_filtered[abnormal_mask]
+                        abnormal_count = int(abnormal_mask.sum())
+                        
+                        # Display metrics
+                        st.markdown("### 🎯 Metrics")
+                        metric_col1, metric_col2, metric_col3 = st.columns([1, 1, 1])
+                        
+                        with metric_col1:
+                            fig1 = go.Figure(go.Indicator(
+                                mode="gauge+number",
+                                value=rmse,
+                                title={'text': "RMSE"},
+                                number={'valueformat': ',.2f'},
+                                domain={'x': [0.15, 0.85], 'y': [0, 1]},
+                                gauge={
+                                    'axis': {'range': [0, max(rmse * 2, 1)], 'tickformat': ',.2f'},
+                                    'bar': {'color': "darkblue"},
+                                    'steps': [
+                                        {'range': [0, rmse], 'color': "lightgray"},
+                                        {'range': [rmse, max(rmse * 2, 1)], 'color': "gray"}
+                                    ]
+                                }
+                            ))
+                            fig1.update_layout(width=200, height=140, margin=dict(t=60, b=10))
+                            st.plotly_chart(fig1)
+                        
+                        with metric_col2:
+                            fig2 = go.Figure(go.Indicator(
+                                mode="gauge+number",
+                                value=similarity_index,
+                                title={'text': "Similarity Index (%)"},
+                                number={'valueformat': '.2f', 'suffix': '%'},
+                                domain={'x': [0.15, 0.85], 'y': [0, 1]},
+                                gauge={
+                                    'axis': {'range': [0, 100], 'tickformat': '.0f'},
+                                    'bar': {'color': "orange"},
+                                    'steps': [
+                                        {'range': [0, 33], 'color': "#d4f0ff"},
+                                        {'range': [33, 66], 'color': "#ffeaa7"},
+                                        {'range': [66, 100], 'color': "#c8e6c9"}
+                                    ],
+                                    'threshold': {
+                                        'line': {'color': "red", 'width': 4},
+                                        'thickness': 0.75,
+                                        'value': 50
+                                    }
+                                }
+                            ))
+                            fig2.update_layout(width=200, height=140, margin=dict(t=60, b=10))
+                            st.plotly_chart(fig2)
+                        
+                        with metric_col3:
+                            fig3 = go.Figure(go.Indicator(
+                                mode="gauge+number",
+                                value=abnormal_count,
+                                title={'text': "Abnormal Points"},
+                                number={'valueformat': 'd'},
+                                domain={'x': [0.15, 0.85], 'y': [0, 1]},
+                                gauge={
+                                    'axis': {'range': [0, max(10, abnormal_count * 2)]},
+                                    'bar': {'color': "crimson"},
+                                    'steps': [
+                                        {'range': [0, 10], 'color': "#c8e6c9"},
+                                        {'range': [10, 25], 'color': "#ffcc80"},
+                                        {'range': [25, 100], 'color': "#ef5350"}
+                                    ]
+                                }
+                            ))
+                            fig3.update_layout(width=200, height=140, margin=dict(t=60, b=10))
+                            st.plotly_chart(fig3)
+                        
+                        st.markdown("### 🧮 Plot Visualization")
+                        
                         if plot_mode == "Superimposed":
                             fig = go.Figure()
                             # Add main line plot
@@ -1082,28 +1179,17 @@ elif st.session_state.current_page == 'comparative_analysis':
                                 name='Target',
                                 line=dict(color='green')
                             ))
-                            # Add abnormal points to target plot
-                            if len(b_filtered) > 0:
-                                # Calculate difference and z-score for abnormality detection
-                                val_col = f"{y_axis}_validation"
-                                bench_col = f"{y_axis}_benchmark"
-                                merged = pd.DataFrame()
-                                merged[bench_col] = b_filtered[y_axis]
-                                merged[val_col] = v_filtered[y_axis]
-                                merged["Difference"] = merged[val_col] - merged[bench_col]
-                                merged["Z_Score"] = (merged["Difference"] - merged["Difference"].mean()) / merged["Difference"].std()
-                                abnormal_mask = abs(merged["Z_Score"]) > z_threshold
-                                abnormal_points = v_filtered[abnormal_mask]
-                                if not abnormal_points.empty:
-                                    fig.add_trace(
-                                        go.Scatter(
-                                            x=abnormal_points[x_axis], 
-                                            y=abnormal_points[y_axis], 
-                                            mode='markers', 
-                                            marker=dict(color='red', size=8), 
-                                            name='Abnormal Points'
-                                        )
+                            # Add abnormal points
+                            if not abnormal_points.empty:
+                                fig.add_trace(
+                                    go.Scatter(
+                                        x=abnormal_points[x_axis], 
+                                        y=abnormal_points[y_axis], 
+                                        mode='markers', 
+                                        marker=dict(color='red', size=8), 
+                                        name='Abnormal Points'
                                     )
+                                )
                             
                             # Get timestamp ticks if needed
                             if x_axis == 'timestamp_seconds':
