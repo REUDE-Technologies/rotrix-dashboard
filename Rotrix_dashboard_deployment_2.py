@@ -1085,10 +1085,15 @@ elif st.session_state.current_page == 'comparative_analysis':
                             # Add abnormal points to target plot
                             if len(b_filtered) > 0:
                                 # Calculate difference and z-score for abnormality detection
-                                diff = v_filtered[y_axis] - b_filtered[y_axis]
-                                z_scores = (diff - diff.mean()) / diff.std()
-                                abnormal_mask = abs(z_scores) > z_threshold
-                                abnormal_points = b_filtered[abnormal_mask]
+                                val_col = f"{y_axis}_validation"
+                                bench_col = f"{y_axis}_benchmark"
+                                merged = pd.DataFrame()
+                                merged[bench_col] = b_filtered[y_axis]
+                                merged[val_col] = v_filtered[y_axis]
+                                merged["Difference"] = merged[val_col] - merged[bench_col]
+                                merged["Z_Score"] = (merged["Difference"] - merged["Difference"].mean()) / merged["Difference"].std()
+                                abnormal_mask = abs(merged["Z_Score"]) > z_threshold
+                                abnormal_points = v_filtered[abnormal_mask]
                                 if not abnormal_points.empty:
                                     fig.add_trace(
                                         go.Scatter(
@@ -1162,10 +1167,15 @@ elif st.session_state.current_page == 'comparative_analysis':
                             # Add abnormal points
                             if len(b_filtered) > 0:
                                 # Calculate difference and z-score for abnormality detection
-                                diff = v_filtered[y_axis] - b_filtered[y_axis]
-                                z_scores = (diff - diff.mean()) / diff.std()
-                                abnormal_mask = abs(z_scores) > z_threshold
-                                abnormal_points = b_filtered[abnormal_mask]
+                                val_col = f"{y_axis}_validation"
+                                bench_col = f"{y_axis}_benchmark"
+                                merged = pd.DataFrame()
+                                merged[bench_col] = b_filtered[y_axis]
+                                merged[val_col] = v_filtered[y_axis]
+                                merged["Difference"] = merged[val_col] - merged[bench_col]
+                                merged["Z_Score"] = (merged["Difference"] - merged["Difference"].mean()) / merged["Difference"].std()
+                                abnormal_mask = abs(merged["Z_Score"]) > z_threshold
+                                abnormal_points = v_filtered[abnormal_mask]
                                 if not abnormal_points.empty:
                                     fig.add_trace(
                                         go.Scatter(
