@@ -704,11 +704,6 @@ elif st.session_state.current_page == 'single_analysis':
                         with settings_col:
                             st.markdown("#### ⚙️ Data Settings")
                             
-                            # Add data analysis settings
-                            st.markdown("##### 📊 Display Options")
-                            show_numeric_only = st.checkbox("Show Numeric Columns Only", value=True)
-                            show_timestamps = st.checkbox("Show Timestamps", value=True)
-                            
                             # Add column management
                             st.markdown("##### 🔧 Column Management")
                             if isinstance(df, pd.DataFrame):
@@ -728,7 +723,7 @@ elif st.session_state.current_page == 'single_analysis':
                                     if 'Index' in df.columns:
                                         display_cols.append('Index')
                                     # Add timestamp_seconds next if available
-                                    if show_timestamps and 'timestamp_seconds' in df.columns:
+                                    if 'timestamp_seconds' in df.columns:
                                         display_cols.append('timestamp_seconds')
                                     # Add selected axes if not already included
                                     if x_axis not in display_cols:
@@ -750,14 +745,14 @@ elif st.session_state.current_page == 'single_analysis':
                                     )
                                 else:
                                     # For CSV files or when no topic/axes selected
-                                    display_cols = ['Index'] if show_numeric_only else list(df.columns)
-                                    if show_timestamps and 'timestamp_seconds' in df.columns:
+                                    display_cols = ['Index']
+                                    if 'timestamp_seconds' in df.columns:
                                         display_cols.append('timestamp_seconds')
                                     
-                                    if show_numeric_only:
-                                        numeric_cols = [col for col in df.columns if pd.api.types.is_numeric_dtype(df[col]) 
-                                                      and col not in display_cols]
-                                        display_cols.extend(numeric_cols)
+                                    # Add all numeric columns
+                                    numeric_cols = [col for col in df.columns if pd.api.types.is_numeric_dtype(df[col]) 
+                                                  and col not in display_cols]
+                                    display_cols.extend(numeric_cols)
                                     
                                     st.dataframe(
                                         df[list(dict.fromkeys(display_cols))],  # Remove duplicates while preserving order
@@ -883,11 +878,6 @@ elif st.session_state.current_page == 'comparative_analysis':
             with settings_col:
                 st.markdown("#### ⚙️ Data Settings")
                 
-                # Add data analysis settings
-                st.markdown("##### 📊 Display Options")
-                show_numeric_only = st.checkbox("Show Numeric Columns Only", value=True)
-                show_timestamps = st.checkbox("Show Timestamps", value=True)
-                
                 # Add dataset selector and column management
                 st.markdown("##### 🔧 Column Management")
                 dataset_choice = st.selectbox(
@@ -922,9 +912,9 @@ elif st.session_state.current_page == 'comparative_analysis':
                         # Ensure timestamp_seconds is present
                         b_df = ensure_seconds_column(b_df)
                         
-                        # Get display columns based on settings and file type
-                        display_cols = ['Index'] if show_numeric_only else list(b_df.columns)
-                        if show_timestamps and 'timestamp_seconds' in b_df.columns:
+                        # Get display columns
+                        display_cols = ['Index']
+                        if 'timestamp_seconds' in b_df.columns:
                             display_cols.append('timestamp_seconds')
                         
                         # For ULG files with selected assessment
@@ -933,8 +923,8 @@ elif st.session_state.current_page == 'comparative_analysis':
                             if selected_assessment in ASSESSMENT_Y_AXIS_MAP:
                                 assessment_cols = ASSESSMENT_Y_AXIS_MAP[selected_assessment]
                                 display_cols.extend([col for col in assessment_cols if col in b_df.columns])
-                        elif show_numeric_only:
-                            # For CSV files or when no assessment selected, show all numeric columns
+                        else:
+                            # Add all numeric columns
                             numeric_cols = [col for col in b_df.columns if pd.api.types.is_numeric_dtype(b_df[col]) 
                                           and col not in display_cols]
                             display_cols.extend(numeric_cols)
@@ -958,9 +948,9 @@ elif st.session_state.current_page == 'comparative_analysis':
                         # Ensure timestamp_seconds is present
                         v_df = ensure_seconds_column(v_df)
                         
-                        # Get display columns based on settings and file type
-                        display_cols = ['Index'] if show_numeric_only else list(v_df.columns)
-                        if show_timestamps and 'timestamp_seconds' in v_df.columns:
+                        # Get display columns
+                        display_cols = ['Index']
+                        if 'timestamp_seconds' in v_df.columns:
                             display_cols.append('timestamp_seconds')
                         
                         # For ULG files with selected assessment
@@ -969,8 +959,8 @@ elif st.session_state.current_page == 'comparative_analysis':
                             if selected_assessment in ASSESSMENT_Y_AXIS_MAP:
                                 assessment_cols = ASSESSMENT_Y_AXIS_MAP[selected_assessment]
                                 display_cols.extend([col for col in assessment_cols if col in v_df.columns])
-                        elif show_numeric_only:
-                            # For CSV files or when no assessment selected, show all numeric columns
+                        else:
+                            # Add all numeric columns
                             numeric_cols = [col for col in v_df.columns if pd.api.types.is_numeric_dtype(v_df[col]) 
                                           and col not in display_cols]
                             display_cols.extend(numeric_cols)
