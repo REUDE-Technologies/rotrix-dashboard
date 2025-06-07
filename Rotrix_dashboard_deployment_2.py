@@ -358,15 +358,15 @@ def get_base64_image(image_path):
     with open(image_path, "rb") as img_file:
         return base64.b64encode(img_file.read()).decode()
 
-logo_base64 = get_base64_image(os.path.join(os.path.dirname(__file__), "Rotrix-Logo.png"))
-# st.logo(logo_base64, *, size="medium", link=None, icon_image=None)
-st.markdown(f"""
-    <div style="display: flex; position: fixed; top:50px; left: 50px; z-index:50; justify-content: left; align-items: center; padding: 1px; background-color:white; border-radius:25px;">
-        <a href="http://rotrixdemo.reude.tech/" target="_blank">
-            <img src="data:image/png;base64,{logo_base64}" width="180" alt="Rotrix Logo">
-        </a>
-    </div>
-""", unsafe_allow_html=True)
+# logo_base64 = get_base64_image(os.path.join(os.path.dirname(__file__), "Rotrix-Logo.png"))
+# # st.logo(logo_base64, *, size="medium", link=None, icon_image=None)
+# st.markdown(f"""
+#     <div style="display: flex; position: fixed; top:50px; left: 50px; z-index:50; justify-content: left; align-items: center; padding: 1px; background-color:white; border-radius:25px;">
+#         <a href="http://rotrixdemo.reude.tech/" target="_blank">
+#             <img src="data:image/png;base64,{logo_base64}" width="180" alt="Rotrix Logo">
+#         </a>
+#     </div>
+# """, unsafe_allow_html=True)
 
 # Home Page
 if st.session_state.current_page == 'home':
