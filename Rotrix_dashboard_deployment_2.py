@@ -372,14 +372,14 @@ st.markdown(f"""
 if st.session_state.current_page == 'home':
     # Logo is already handled separately
 
-    st.markdown("""
-    <div style='text-align: center; padding: 20px 0;'>
-        <h1 style='color: #2E86C1; display: flex; align-items: center; justify-content: center; gap: 10px; margin: 0;'>
-            <span>🚀</span> ROTRIX Analysis Dashboard
-        </h1>
-        <p style='color: #666; margin: 10px 0 0 0;'>Advanced data analysis and visualization platform</p>
-    </div>
-    """, unsafe_allow_html=True)
+    # st.markdown("""
+    # <div style='text-align: center; padding: 20px 0;'>
+    #     <h1 style='color: #2E86C1; display: flex; align-items: center; justify-content: center; gap: 10px; margin: 0;'>
+    #         <span>🚀</span> ROTRIX Analysis Dashboard
+    #     </h1>
+    #     <p style='color: #666; margin: 10px 0 0 0;'>Advanced data analysis and visualization platform</p>
+    # </div>
+    # """, unsafe_allow_html=True)
 
     # Data Source Selection
     st.markdown("""
