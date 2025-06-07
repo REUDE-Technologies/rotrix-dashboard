@@ -403,18 +403,18 @@ if st.session_state.current_page == 'home':
         st.info("🚧 This feature is currently under development. Please select 'Other' to proceed.")
         st.stop()
 
-    # Analysis Type Selection
-    st.markdown("""
-    <div style='padding: 20px 0 10px 0;'>
-        <div style='display: flex; align-items: center; gap: 8px;'>
-            <span style='font-size: 1.2em;'>🔍</span>
-            <h2 style='color: #2E86C1; margin: 0; font-size: 1.2em;'>Analysis Type</h2>
-        </div>
-        <p style='color: #666; margin: 5px 0 0 0;'>Select your preferred analysis method</p>
-    </div>
-    """, unsafe_allow_html=True)
+    # # Analysis Type Selection
+    # st.markdown("""
+    # <div style='padding: 20px 0 10px 0;'>
+    #     <div style='display: flex; align-items: center; gap: 8px;'>
+    #         <span style='font-size: 1.2em;'>🔍</span>
+    #         <h2 style='color: #2E86C1; margin: 0; font-size: 1.2em;'>Analysis Type</h2>
+    #     </div>
+    #     <p style='color: #666; margin: 5px 0 0 0;'>Select your preferred analysis method</p>
+    # </div>
+    # """, unsafe_allow_html=True)
 
-    col1, col2 = st.columns(2)
+    # col1, col2 = st.columns(2)
     
     # with col1:
     #     st.markdown("""
