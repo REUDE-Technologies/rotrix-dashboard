@@ -416,39 +416,39 @@ if st.session_state.current_page == 'home':
 
     col1, col2 = st.columns(2)
     
-    with col1:
-        st.markdown("""
-        <div style='background-color: white; padding: 20px; border-radius: 10px; border: 1px solid #e1e4e8;'>
-            <div style='display: flex; align-items: center; gap: 8px; margin-bottom: 10px;'>
-                <span>📈</span>
-                <h3 style='color: #2E86C1; margin: 0; font-size: 1em;'>Single File Analysis</h3>
-            </div>
-            <p style='color: #666; margin: 0 0 10px 0; font-size: 0.95em;'>Analyze individual data files</p>
-            <ul style='color: #666; padding-left: 20px; margin: 0; font-size: 0.95em;'>
-                <li>Data visualization</li>
-                <li>Statistical analysis</li>
-                <li>Anomaly detection</li>
-                <li>Performance metrics</li>
-            </ul>
-        </div>
-        """, unsafe_allow_html=True)
+    # with col1:
+    #     st.markdown("""
+    #     <div style='background-color: white; padding: 20px; border-radius: 10px; border: 1px solid #e1e4e8;'>
+    #         <div style='display: flex; align-items: center; gap: 8px; margin-bottom: 10px;'>
+    #             <span>📈</span>
+    #             <h3 style='color: #2E86C1; margin: 0; font-size: 1em;'>Single File Analysis</h3>
+    #         </div>
+    #         <p style='color: #666; margin: 0 0 10px 0; font-size: 0.95em;'>Analyze individual data files</p>
+    #         <ul style='color: #666; padding-left: 20px; margin: 0; font-size: 0.95em;'>
+    #             <li>Data visualization</li>
+    #             <li>Statistical analysis</li>
+    #             <li>Anomaly detection</li>
+    #             <li>Performance metrics</li>
+    #         </ul>
+    #     </div>
+    #     """, unsafe_allow_html=True)
 
-    with col2:
-        st.markdown("""
-        <div style='background-color: white; padding: 20px; border-radius: 10px; border: 1px solid #e1e4e8;'>
-            <div style='display: flex; align-items: center; gap: 8px; margin-bottom: 10px;'>
-                <span>🔄</span>
-                <h3 style='color: #2E86C1; margin: 0; font-size: 1em;'>Comparative Analysis</h3>
-            </div>
-            <p style='color: #666; margin: 0 0 10px 0; font-size: 0.95em;'>Compare two data files</p>
-            <ul style='color: #666; padding-left: 20px; margin: 0; font-size: 0.95em;'>
-                <li>Side-by-side comparison</li>
-                <li>Difference analysis</li>
-                <li>Performance benchmarking</li>
-                <li>Trend visualization</li>
-            </ul>
-        </div>
-        """, unsafe_allow_html=True)
+    # with col2:
+    #     st.markdown("""
+    #     <div style='background-color: white; padding: 20px; border-radius: 10px; border: 1px solid #e1e4e8;'>
+    #         <div style='display: flex; align-items: center; gap: 8px; margin-bottom: 10px;'>
+    #             <span>🔄</span>
+    #             <h3 style='color: #2E86C1; margin: 0; font-size: 1em;'>Comparative Analysis</h3>
+    #         </div>
+    #         <p style='color: #666; margin: 0 0 10px 0; font-size: 0.95em;'>Compare two data files</p>
+    #         <ul style='color: #666; padding-left: 20px; margin: 0; font-size: 0.95em;'>
+    #             <li>Side-by-side comparison</li>
+    #             <li>Difference analysis</li>
+    #             <li>Performance benchmarking</li>
+    #             <li>Trend visualization</li>
+    #         </ul>
+    #     </div>
+    #     """, unsafe_allow_html=True)
 
     st.markdown("<div style='margin: 20px 0;'></div>", unsafe_allow_html=True)
     analysis_type = st.radio(
