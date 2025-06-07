@@ -386,7 +386,7 @@ if st.session_state.current_page == 'home':
     <div style='padding: 0 0 10px 0;'>
         <div style='display: flex; align-items: center; gap: 8px;'>
             <span style='font-size: 1.2em;'>📊</span>
-            <h2 style='color: #2E86C1; margin: 0; font-size: 1.2em;'>Data Source Selection</h2>
+            <h2 style='color: #2E86C1; margin: 0; font-size: 1.2em;'>Data Assessment</h2>
         </div>
     </div>
     """, unsafe_allow_html=True)
