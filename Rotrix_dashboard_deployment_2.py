@@ -86,13 +86,21 @@ if 'analysis_type' not in st.session_state:
     st.session_state.analysis_type = None
 if 'data_source' not in st.session_state:
     st.session_state.data_source = None
+if 'previous_data_source' not in st.session_state:
+    st.session_state.previous_data_source = None
 if 'b_df' not in st.session_state:
     st.session_state.b_df = None
 if 'v_df' not in st.session_state:
     st.session_state.v_df = None
+if 'previous_analysis_type' not in st.session_state:
+    st.session_state.previous_analysis_type = None
 
 # Function to change page
 def change_page(page):
+    if page == 'home':
+        # Store the current analysis type and data source before going back
+        st.session_state.previous_analysis_type = st.session_state.analysis_type
+        st.session_state.previous_data_source = st.session_state.data_source
     st.session_state.current_page = page
 
 # Utility functions
@@ -285,34 +293,42 @@ def add_remove_column(target_df, df_name="DataFrame"):
         st.warning(f"⚠ {df_name} is empty or not loaded.")
         return target_df
     
-    st.markdown("##### 🧮 New Column")
-    new_col_name = st.text_input("New Column Name", key=f"{df_name}_add")
-    custom_formula = st.text_input("Formula (e.g., Voltage * Current)", key=f"{df_name}_formula")
+    # New Column Section with columns
+    st.markdown("<p style='font-size: 12px; margin: 0;'>🧮 New Column</p>", unsafe_allow_html=True)
+    col1, col2 = st.columns(2)
+    with col1:
+        new_col_name = st.text_input("Column Name", key=f"{df_name}_add", label_visibility="collapsed", placeholder="Column Name")
+    with col2:
+        custom_formula = st.text_input("Formula", key=f"{df_name}_formula", label_visibility="collapsed", placeholder="Formula (e.g., x*y)")
 
-    if st.button(f"Add Column to {df_name}"):
+    if st.button("Add Column", key=f"add_btn_{df_name}", use_container_width=True):
         try:
             if new_col_name and custom_formula:
                 target_df[new_col_name] = target_df.eval(custom_formula)
-                st.success(f"✅ Added column {new_col_name} to {df_name} using: {custom_formula}")
+                st.success(f"Added: {new_col_name}")
         except Exception as e:
-            st.error(f"❌ Error creating column: {e}")
+            st.error(f"Error: {str(e)}")
 
-    st.markdown("##### 🗑 Remove Column")
-    columns_to_drop = st.multiselect("Select columns to drop", target_df.columns, key=f"{df_name}_drop")
-
-    if st.button(f"Remove Column from {df_name}"):
+    # Remove Column Section
+    st.markdown("<p style='font-size: 12px; margin: 0;'>🗑 Remove Column</p>", unsafe_allow_html=True)
+    columns_to_drop = st.multiselect("Select columns", target_df.columns, key=f"{df_name}_drop", label_visibility="collapsed")
+    if st.button("Remove Selected", key=f"remove_btn_{df_name}", use_container_width=True):
         if columns_to_drop:
             target_df.drop(columns=columns_to_drop, inplace=True)
-            st.success(f"🗑 Removed columns: {', '.join(columns_to_drop)} from {df_name}")
+            st.success(f"Removed {len(columns_to_drop)} column(s)")
             
-    st.markdown("##### ✏ Rename Column")
-    rename_col = st.selectbox("Select column to rename", target_df.columns, key=f"{df_name}_rename_col")
-    new_name = st.text_input("New column name", key=f"{df_name}_rename_input")
+    # Rename Column Section
+    st.markdown("<p style='font-size: 12px; margin: 0;'>✏ Rename Column</p>", unsafe_allow_html=True)
+    col3, col4 = st.columns(2)
+    with col3:
+        rename_col = st.selectbox("Select column", target_df.columns, key=f"{df_name}_rename_col", label_visibility="collapsed")
+    with col4:
+        new_name = st.text_input("New name", key=f"{df_name}_rename_input", label_visibility="collapsed", placeholder="New name")
 
-    if st.button(f"Rename Column in {df_name}", key=f"{df_name}_rename_button"):
+    if st.button("Rename Column", key=f"rename_btn_{df_name}", use_container_width=True):
         if rename_col and new_name:
             target_df.rename(columns={rename_col: new_name}, inplace=True)
-            st.success(f"✏ Renamed column {rename_col} to {new_name} in {df_name}")
+            st.success(f"Renamed: {rename_col} → {new_name}")
 
     return target_df
 
@@ -422,13 +438,25 @@ if st.session_state.current_page == 'home':
     </div>
     """, unsafe_allow_html=True)
     
+    # Use previous data source if available
+    default_data_source = st.session_state.previous_data_source if st.session_state.previous_data_source else "Other"
     data_source = st.radio(
         "Choose your preferred data source for analysis",
         ["ROTRIX Account", "My Shared Files", "Other"],
-        #help="Choose your preferred data source for analysis",
+        index=["ROTRIX Account", "My Shared Files", "Other"].index(default_data_source),
+        # help="Choose your preferred data source for analysis",
         horizontal=False
     )
     st.session_state.data_source = data_source
+
+    # Use previous analysis type if available
+    default_analysis_type = st.session_state.previous_analysis_type if st.session_state.previous_analysis_type else "Single File Analysis"
+    analysis_type = st.radio(
+        "Choose the type of analysis you want to perform",
+        ["Single File Analysis", "Comparative Analysis"],
+        index=0 if default_analysis_type == "Single File Analysis" else 1
+    )
+    st.session_state.analysis_type = analysis_type
 
     if data_source == "ROTRIX Account":
         st.markdown("""
@@ -531,19 +559,13 @@ if st.session_state.current_page == 'home':
     #     """, unsafe_allow_html=True)
 
     # st.markdown("<div style='margin: 20px 0;'></div>", unsafe_allow_html=True)
-    analysis_type = st.radio(
-        "Choose the type of analysis you want to perform",
-        ["Single File Analysis", "Comparative Analysis"],
-        #help="Choose the type of analysis you want to perform"
-    )
-    st.session_state.analysis_type = analysis_type
 
     # File upload section based on analysis type
     if analysis_type == "Single File Analysis":
         st.markdown("<h4 style='font-size:18px; color:#4B8BBE;'>🔼 Upload Analysis File</h4>", unsafe_allow_html=True)
         
-        # File upload layout
-        col1, col2 = st.columns(2)
+        # Create a 3-column layout
+        col1, col2, col3 = st.columns(3)
         
         with col1:
             # Initialize uploaded files list in session state
@@ -576,7 +598,6 @@ if st.session_state.current_page == 'home':
                 if st.session_state.show_share_modal == i:
                     with st.expander("Share Options", expanded=True):
                         # st.markdown("### Share Options")
-                        
                         # Create columns for share options
                         share_col1, share_col2, share_col3, share_col4 = st.columns([1, 1, 1, 0.5])
                         
@@ -622,7 +643,17 @@ if st.session_state.current_page == 'home':
                     file.seek(0)  # Reset file pointer for future use
                 except Exception as e:
                     st.error("Error loading file")
-                
+        
+        with col3:
+            # Topic selection for ULG files
+            selected_file = st.session_state.get('selected_single_file')
+            if selected_file and selected_file.endswith('.ulg'):
+                assessment_names = ["None"] + [a for _, a in TOPIC_ASSESSMENT_PAIRS]
+                selected_assessment = st.selectbox("Select Topic", options=assessment_names)
+                if selected_assessment == "None":
+                    st.info("Select Topic")
+                st.session_state.selected_assessment = selected_assessment
+            # Show nothing for CSV files - selection success is already shown in middle column
     else:  # Comparative Analysis
         st.markdown("<h4 style='font-size:18px; color:#4B8BBE;'>🔼 Upload Benchmark & Target Files</h4>", unsafe_allow_html=True)
         
@@ -769,17 +800,7 @@ if st.session_state.current_page == 'home':
                 except Exception as e:
                     st.error("Error loading target file")
 
-    # Topic selection for ULG files if needed
-    if st.session_state.analysis_type == "Single File Analysis":
-        selected_file = st.session_state.get('selected_single_file')
-        if selected_file and selected_file.endswith('.ulg'):
-            st.markdown("<h4 style='font-size:18px; color:#4B8BBE;'>📊 Select Topic</h4>", unsafe_allow_html=True)
-            assessment_names = ["None"] + [a for _, a in TOPIC_ASSESSMENT_PAIRS]
-            selected_assessment = st.selectbox("Select Topic", options=assessment_names)
-            if selected_assessment == "None":
-                st.info("Please select a topic to analyze")
-            st.session_state.selected_assessment = selected_assessment
-    else:  # Comparative Analysis 
+    if st.session_state.analysis_type != "Single File Analysis":  # Comparative Analysis
         # For comparative analysis, only show topic selection if both files are ULG
         selected_bench = st.session_state.get('selected_bench')
         selected_val = st.session_state.get('selected_val')
@@ -830,6 +851,9 @@ elif st.session_state.current_page == 'single_analysis':
         st.markdown("<h3 style='font-size: 20px;'>🔍 Single File Analysis</h3>", unsafe_allow_html=True)
     with col2:
         if st.button("← Back to Home", use_container_width=True):
+            # Store current analysis type and data source before going back
+            st.session_state.previous_analysis_type = "Single File Analysis"
+            st.session_state.previous_data_source = st.session_state.data_source
             change_page('home')
             st.rerun()
     
@@ -838,6 +862,7 @@ elif st.session_state.current_page == 'single_analysis':
     selected_assessment = "None"
     df = None
     file_ext = None
+    # assessment_to_topic = {a: t for t, a in TOPIC_ASSESSMENT_PAIRS}
     
     # Topic selection for ULG files
     if selected_file != "None":
@@ -1084,16 +1109,16 @@ elif st.session_state.current_page == 'single_analysis':
                                             fig.update_xaxes(title_text=x_axis)
                                         
                                         fig.update_layout(
-                                            height=450,  # Reduced from 900 to fit viewport
+                                            height=450,  # Increased from 450 to 500 for better view in single file analysis
                                             showlegend=True,
                                             legend=dict(
                                                 orientation="h",
                                                 yanchor="bottom",
-                                                y=1.02,  # Slightly adjusted to prevent overlap
+                                                y=1.01,
                                                 xanchor="center",
                                                 x=0.5
                                             ),
-                                            margin=dict(t=30, b=20, l=50, r=20),  # Optimized margins
+                                            margin=dict(t=15, b=10, l=50, r=20),
                                             yaxis=dict(
                                                 showticklabels=True,
                                                 title=y_axis
@@ -1104,72 +1129,104 @@ elif st.session_state.current_page == 'single_analysis':
                                st.error(f"Error creating plot: {str(e)}")
                     
                 with tab2:
-                    st.markdown("<h3 style='font-size: 20px;'>📋 Data Preview</h3>", unsafe_allow_html=True)
-                    
                     # Create a 20-80 split layout
                     settings_col, data_col = st.columns([0.2, 0.8])
                     
                     with settings_col:
                         # Add dataset selector and column management
-                        st.markdown("<h5 style='font-size: 16px;'>🔧 Column Management</h5>", unsafe_allow_html=True)
+                        st.markdown("<h3 style='font-size: 20px;'>📋 Data Preview</h3>", unsafe_allow_html=True)
+                        st.markdown("<h5 style='font-size: 14px; margin-bottom: 5px;'>🔧 Column Management</h5>", unsafe_allow_html=True)
                         if isinstance(df, pd.DataFrame):
                             df = add_remove_column(df, "Dataset")
+                            
+                            with data_col:
+                                if isinstance(df, pd.DataFrame) and len(df.index) > 0:
+                                    # Initialize display columns
+                                    display_cols = []
+                                    
+                                    # Add Index if it exists
+                                    if 'Index' in df.columns:
+                                        display_cols.append('Index')
+                                        
+                                    # Add timestamp if it exists    
+                                    if 'timestamp_seconds' in df.columns:
+                                        display_cols.append('timestamp_seconds')
+                                    
+                                    # For ULG files after topic selection, show only selected axes
+                                    if file_ext == ".ulg" and selected_assessment and selected_assessment != "None" and x_axis and y_axis:
+                                        # Add selected axes if not already included
+                                        if x_axis not in display_cols:
+                                            display_cols.append(x_axis)
+                                        if y_axis not in display_cols:
+                                            display_cols.append(y_axis)
+                                        
+                                        # Add any numeric columns from the assessment map if available
+                                        if selected_assessment in ASSESSMENT_Y_AXIS_MAP:
+                                            for col in ASSESSMENT_Y_AXIS_MAP[selected_assessment]:
+                                                if col in df.columns and col not in display_cols and pd.api.types.is_numeric_dtype(df[col]):
+                                                    display_cols.append(col)
+                                    else:
+                                        # For CSV files or when no topic/axes selected, add all numeric columns
+                                        try:
+                                            numeric_cols = []
+                                            for col in list(df.columns):
+                                                if col not in display_cols and pd.api.types.is_numeric_dtype(df[col]):
+                                                    numeric_cols.append(col)
+                                            display_cols.extend(numeric_cols)
+                                        except Exception as e:
+                                            st.error(f"Error processing numeric columns: {str(e)}")
+                                    
+                                    # Display the DataFrame with selected columns
+                                    if display_cols:
+                                        st.dataframe(
+                                            df[display_cols],
+                                            use_container_width=True,
+                                            height=600
+                                        )
+                                    else:
+                                        st.warning("No displayable columns found in the data.")
+                                else:
+                                    st.info("Please upload a valid data file to begin analysis.")
+        else:
+            # For CSV files or when no topic/axes selected
+            if df is not None and isinstance(df, pd.DataFrame) and len(df.index) > 0:
+                try:
+                    # Initialize display columns
+                    display_cols = []
                     
-                    with data_col:
-                        if isinstance(df, pd.DataFrame) and len(df.index) > 0:
-                            # For ULG files after topic selection, show only selected axes
-                            if file_ext == ".ulg" and selected_assessment and selected_assessment != "None" and x_axis and y_axis:
-                                # Only add Index column if it doesn't exist
-                                if 'Index' not in df.columns:
-                                    df.insert(0, "Index", range(1, len(df) + 1))
-                                
-                                # Create a list of columns to display in order
-                                display_cols = []
-                                # Always start with Index
-                                if 'Index' in df.columns:
-                                    display_cols.append('Index')
-                                # Add timestamp_seconds next if available
-                                if 'timestamp_seconds' in df.columns:
-                                    display_cols.append('timestamp_seconds')
-                                # Add selected axes if not already included
-                                if x_axis not in display_cols:
-                                    display_cols.append(x_axis)
-                                if y_axis not in display_cols:
-                                    display_cols.append(y_axis)
-                                
-                                # Add any numeric columns from the assessment map if available
-                                if selected_assessment in ASSESSMENT_Y_AXIS_MAP:
-                                    for col in ASSESSMENT_Y_AXIS_MAP[selected_assessment]:
-                                        if col in df.columns and col not in display_cols and pd.api.types.is_numeric_dtype(df[col]):
-                                            display_cols.append(col)
-                                
-                                # Display the filtered DataFrame
-                                st.dataframe(
-                                    df[list(dict.fromkeys(display_cols))],  # Remove duplicates while preserving order
-                                    use_container_width=True,
-                                    height=500  # Increased height for better visibility
-                                )
-                            else:
-                                # For CSV files or when no topic/axes selected
-                                display_cols = ['Index']
-                                if 'timestamp_seconds' in df.columns:
-                                    display_cols.append('timestamp_seconds')
-                                
-                                # Add all numeric columns
-                                numeric_cols = [col for col in df.columns if pd.api.types.is_numeric_dtype(df[col]) 
-                                              and col not in display_cols]
-                                display_cols.extend(numeric_cols)
-                                
-                                st.dataframe(
-                                    df[list(dict.fromkeys(display_cols))],  # Remove duplicates while preserving order
-                                    use_container_width=True,
-                                    height=500
-                                )
-                # except:
-                #     st.error("Error loading file")
-                #     df = None
-    else:
-        st.info("Please upload a valid data file to begin analysis.")
+                    # Add Index if it exists
+                    if 'Index' in df.columns:
+                        display_cols.append('Index')
+                        
+                    # Add timestamp if it exists    
+                    if 'timestamp_seconds' in df.columns:
+                        display_cols.append('timestamp_seconds')
+                    
+                    # Add all numeric columns with proper type checking
+                    numeric_cols = []
+                    if hasattr(df, 'columns'):
+                        column_list = list(df.columns)
+                        for col in column_list:
+                            try:
+                                if col not in display_cols and pd.api.types.is_numeric_dtype(df[col]):
+                                    numeric_cols.append(col)
+                            except:
+                                continue
+                    display_cols.extend(numeric_cols)
+                    
+                    # Display the DataFrame with selected columns
+                    if display_cols:
+                        st.dataframe(
+                            df[display_cols],
+                            use_container_width=True,
+                            height=600
+                        )
+                    else:
+                        st.warning("No displayable columns found in the data.")
+                except Exception as e:
+                    st.error(f"Error processing data: {str(e)}")
+            else:
+                st.info("Please upload a valid data file to begin analysis.")
 
 # Comparative Analysis Page
 elif st.session_state.current_page == 'comparative_analysis':
@@ -1179,6 +1236,9 @@ elif st.session_state.current_page == 'comparative_analysis':
         st.markdown("<h3 style='font-size: 20px;'>🚀 Comparative Analysis</h3>", unsafe_allow_html=True)
     with col2:
         if st.button("← Back to Home", use_container_width=True):
+            # Store current analysis type and data source before going back
+            st.session_state.previous_analysis_type = "Comparative Analysis"
+            st.session_state.previous_data_source = st.session_state.data_source
             change_page('home')
             st.rerun()
     
@@ -1317,13 +1377,12 @@ elif st.session_state.current_page == 'comparative_analysis':
         
         # Data Tab
         with tab2:
-            st.markdown("<h3 style='font-size: 20px;'>📋 Data Preview</h3>", unsafe_allow_html=True)
-            
             # Create a 20-80 split layout
             settings_col, data_col = st.columns([0.2, 0.8])
             
             with settings_col:
                 # Add dataset selector and column management
+                st.markdown("<h3 style='font-size: 20px;'>📋 Data Preview</h3>", unsafe_allow_html=True)
                 st.markdown("<h5 style='font-size: 16px;'>🔧 Column Management</h5>", unsafe_allow_html=True)
                 dataset_choice = st.selectbox(
                     "Select Dataset to Edit",
@@ -1378,7 +1437,7 @@ elif st.session_state.current_page == 'comparative_analysis':
                         st.dataframe(
                             b_df[list(dict.fromkeys(display_cols))],  # Remove duplicates while preserving order
                             use_container_width=True,
-                            height=500
+                            height=600
                         )
                     else:
                         st.warning("⚠️ Benchmark data not properly loaded")
@@ -1414,7 +1473,7 @@ elif st.session_state.current_page == 'comparative_analysis':
                         st.dataframe(
                             v_df[list(dict.fromkeys(display_cols))],  # Remove duplicates while preserving order
                             use_container_width=True,
-                            height=500
+                            height=600
                         )
                     else:
                         st.warning("⚠️ Target data not properly loaded")
@@ -1654,22 +1713,29 @@ elif st.session_state.current_page == 'comparative_analysis':
                                         fig.update_xaxes(title_text=x_axis)
                                         
                                     fig.update_layout(
-                                        height=450,  # Reduced height to fit viewport better
+                                        height=400,  # Reduced height to fit viewport better
                                         showlegend=True,
                                         legend=dict(
                                             orientation="h",
                                             yanchor="bottom",
-                                            y=1.02,
+                                            y=1.01,  # Reduced from 1.02
                                             xanchor="center",
                                             x=0.5
                                         ),
-                                        margin=dict(t=30, b=20, l=50, r=20)  # Optimized margins
+                                        margin=dict(t=15, b=10, l=50, r=20),  # Reduced top margin from 30 to 20
+                                        plot_bgcolor='white',  # White background
+                                        yaxis=dict(
+                                            showticklabels=True,
+                                            title=y_axis
+                                        )
                                     )
                                     st.plotly_chart(fig, use_container_width=True)
                                 else:  # Separate plots
-                                    fig = make_subplots(rows=2, cols=1, shared_xaxes=True, 
-                                                      subplot_titles=("Benchmark", "Target"),
-                                                      vertical_spacing=0.1)  # Reduced spacing
+                                    fig = make_subplots(rows=2, cols=1, 
+                                                      shared_xaxes=True, 
+                                                      subplot_titles=None,  # Remove subplot titles
+                                                      vertical_spacing=0.08,  # Slightly reduce spacing since titles are removed
+                                                      row_heights=[0.5, 0.5])  # Equal height for both plots
                                     
                                     fig.add_trace(go.Scatter(
                                         x=b_filtered[x_axis],
@@ -1705,7 +1771,7 @@ elif st.session_state.current_page == 'comparative_analysis':
                                         fig.update_xaxes(
                                             tickvals=tick_vals,
                                             ticktext=tick_texts,
-                                            title_text=get_axis_title(x_axis),
+                                            title_text="",  # Remove title text
                                             type='linear',
                                             row=1, col=1
                                         )
@@ -1717,21 +1783,30 @@ elif st.session_state.current_page == 'comparative_analysis':
                                             row=2, col=1
                                         )
                                     else:
-                                        fig.update_xaxes(title_text=x_axis, row=1, col=1)
+                                        fig.update_xaxes(title_text="", row=1, col=1)
                                         fig.update_xaxes(title_text=x_axis, row=2, col=1)
                                     
                                     fig.update_layout(
-                                        height=450,  # Reduced height to fit viewport better
+                                        height=400,  # Reduced height to fit viewport better
                                         showlegend=True,
                                         legend=dict(
                                             orientation="h",
                                             yanchor="bottom",
-                                            y=1.02,
+                                            y=1.01,  # Reduced from 1.02
                                             xanchor="center",
                                             x=0.5
                                         ),
-                                        margin=dict(t=30, b=20, l=50, r=20)  # Optimized margins
+                                        margin=dict(t=15, b=10, l=50, r=20),  # Reduced top margin from 30 to 20
+                                        plot_bgcolor='white',  # White background
+                                        yaxis=dict(
+                                            showticklabels=True,
+                                            title=y_axis
+                                        )
                                     )
+                                    # Add grid lines for better readability
+                                    fig.update_xaxes(showgrid=True, gridwidth=1, gridcolor='LightGray')
+                                    fig.update_yaxes(showgrid=True, gridwidth=1, gridcolor='LightGray')
+                                    # Add y-axis titles
                                     fig.update_yaxes(title_text=y_axis, row=1, col=1)
                                     fig.update_yaxes(title_text=y_axis, row=2, col=1)
                                     st.plotly_chart(fig, use_container_width=True)
