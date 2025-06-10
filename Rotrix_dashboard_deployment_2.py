@@ -471,312 +471,344 @@ if st.session_state.current_page == 'home':
 
 # Single File Analysis Page
 elif st.session_state.current_page == 'single_analysis':
-    # Add vertical space and back button
-    st.markdown("<br>", unsafe_allow_html=True)
-    if st.button("← Back to Home"):
-        change_page('home')
-        st.rerun()
-        
-    st.markdown("### 🔍 Single File Analysis")
+    # Title and back button in the same line
+    col1, col2 = st.columns([0.85, 0.15])
+    with col1:
+        st.markdown("<h3 style='font-size: 20px;'>🔍 Single File Analysis</h3>", unsafe_allow_html=True)
+    with col2:
+        if st.button("← Back to Home", use_container_width=True):
+            change_page('home')
+            st.rerun()
     
-    # File upload section
-    uploaded_files = st.file_uploader("📂 Upload File", type=["csv", "ulg"], accept_multiple_files=True)
+    # File upload section in a single row
+    col1, col2, col3 = st.columns(3)
     
-    if uploaded_files:
-        file_names = [f.name for f in uploaded_files]
-        selected_file = st.selectbox("Select File", ["None"] + file_names)
-        
-        if selected_file != "None":
-            file = uploaded_files[file_names.index(selected_file)]
-            file_ext = os.path.splitext(file.name)[-1].lower()
-            
+    # Initialize variables
+    uploaded_files = None
+    selected_file = "None"
+    selected_assessment = "None"
+    df = None
+    file_ext = None
+    
+    # File upload column
+    with col1:
+        uploaded_files = st.file_uploader("📂 Upload File", type=["csv", "ulg"], accept_multiple_files=True, label_visibility="collapsed")
+        if uploaded_files:
+            st.success(f"✅ {len(uploaded_files)} file(s) uploaded")
+        else:
+            st.info("📂 Upload File")
+    
+    # File selection column
+    with col2:
+        file_names = [f.name for f in uploaded_files] if uploaded_files else []
+        selected_file = st.selectbox("Select File", ["None"] + file_names, key="file_selector", label_visibility="collapsed")
+        if selected_file == "None":
+            st.info("📋 Select File")
+        else:
+            st.success(f"✅ {selected_file}")
+    
+    # Topic selection column (for ULG files)
+    with col3:
+        if selected_file != "None" and uploaded_files:
             try:
-                df = None
+                file = uploaded_files[file_names.index(selected_file)]
+                file_ext = os.path.splitext(file.name)[-1].lower()
+                
                 if file_ext == ".ulg":
                     dfs, topics = load_ulog(file)
                     if topics:
                         assessment_names = ["None"] + [a for _, a in TOPIC_ASSESSMENT_PAIRS]
                         assessment_to_topic = {a: t for t, a in TOPIC_ASSESSMENT_PAIRS}
                         selected_assessment = st.selectbox("Select Topic", options=assessment_names)
-                        
-                        if selected_assessment and selected_assessment != "None":
-                            selected_topic = assessment_to_topic.get(str(selected_assessment))
-                            if selected_topic and selected_topic in dfs:
-                                df = dfs[selected_topic]
-                                df = ensure_seconds_column(df)
-                else:
-                    df, _ = load_data(file, file_ext, "")
-                    df = ensure_seconds_column(df)
-                
-                if df is not None and isinstance(df, pd.DataFrame) and len(df.index) > 0:
-                    # Add Index column if it doesn't exist
-                    if 'Index' not in df.columns:
-                        df.insert(0, "Index", range(1, len(df) + 1))
-                    
-                    # Analysis tabs
-                    tab1, tab2 = st.tabs(["📊 Plot", "📋 Data"])
-                    
-                    with tab1:
-                        st.markdown("### 📈 Plot Visualization")
-                        col1, col2 = st.columns([0.2, 0.8])
-                        
-                        with col1:
-                            st.markdown("#### 📈 Parameters")
-                            # Get selected assessment/topic
-                            if file_ext == ".ulg" and selected_assessment and selected_assessment != "None":
-                                allowed_y_axis = ASSESSMENT_Y_AXIS_MAP.get(selected_assessment, [])
-                                allowed_y_axis = [col for col in allowed_y_axis if col in df.columns]
-                                if not allowed_y_axis:
-                                    allowed_y_axis = [col for col in df.columns if pd.api.types.is_numeric_dtype(df[col])]
-                            else:
-                                allowed_y_axis = [col for col in df.columns if pd.api.types.is_numeric_dtype(df[col])]
-                            
-                            ALLOWED_X_AXIS = ["Index", "timestamp_seconds"] + [col for col in allowed_y_axis if col not in ["Index", "timestamp_seconds"]]
-                            
-                            # Set default x_axis based on file type
-                            if file_ext == ".ulg":
-                                default_x = 'timestamp_seconds' if 'timestamp_seconds' in ALLOWED_X_AXIS else 'Index'
-                            else:
-                                default_x = 'Index' if 'Index' in ALLOWED_X_AXIS else ALLOWED_X_AXIS[0]
-                            
-                            x_axis = st.selectbox("X-Axis", ALLOWED_X_AXIS, key="x_axis_single", index=ALLOWED_X_AXIS.index(default_x))
-                            
-                            # Set default y_axis based on file type and available columns
-                            if file_ext == ".csv" and 'cD2detailpeak' in allowed_y_axis:
-                                default_y = 'cD2detailpeak'
-                            else:
-                                default_y = allowed_y_axis[0] if allowed_y_axis else None
-                            
-                            y_axis = st.selectbox("Y-Axis", allowed_y_axis, key="y_axis_single", 
-                                                index=allowed_y_axis.index(default_y) if default_y in allowed_y_axis else 0)
-                            
-                            if x_axis and y_axis:
-                                z_threshold = st.slider("Z-Score Threshold", 1.0, 5.0, 3.0, 0.1, key="z-slider-single")
-                                x_min = st.number_input("X min", value=float(df[x_axis].min()))
-                                x_max = st.number_input("X max", value=float(df[x_axis].max()))
-                                y_min = st.number_input("Y min", value=float(df[y_axis].min()))
-                                y_max = st.number_input("Y max", value=float(df[y_axis].max()))
-
-                        with col2:
-                            if x_axis and y_axis:
-                                try:
-                                    # Filter data
-                                    filtered_df = df[(df[x_axis] >= x_min) & (df[x_axis] <= x_max) &
-                                                   (df[y_axis] >= y_min) & (df[y_axis] <= y_max)]
-                                    if len(filtered_df.index) > 0:
-                                        # Calculate statistics and detect abnormalities
-                                        stats = filtered_df[y_axis].describe()
-                                        abnormal_mask, z_scores = detect_abnormalities(filtered_df[y_axis], z_threshold)
-                                        filtered_df["Z_Score"] = z_scores
-                                        filtered_df["Abnormal"] = abnormal_mask
-                                        abnormal_points = filtered_df[filtered_df["Abnormal"]]
-                                        
-                                        # Display metrics
-                                        st.markdown("### 🎯 Metrics")
-                                        metric_col1, metric_col2, metric_col3 = st.columns([1, 1, 1])
-                                        
-                                        with metric_col1:
-                                            fig1 = go.Figure(go.Indicator(
-                                                mode="gauge+number",
-                                                value=float(stats['mean']),
-                                                title={'text': "Mean Value"},
-                                                domain={'x': [0.15, 0.85], 'y': [0, 1]},
-                                                gauge={
-                                                    'axis': {'range': [float(stats['min']), float(stats['max'])],
-                                                            'tickformat': '.2f'},
-                                                    'bar': {'color': "darkblue"},
-                                                    'steps': [
-                                                        {'range': [float(stats['min']), float(stats['25%'])], 'color': "lightgray"},
-                                                        {'range': [float(stats['25%']), float(stats['75%'])], 'color': "gray"},
-                                                        {'range': [float(stats['75%']), float(stats['max'])], 'color': "darkgray"}
-                                                    ]
-                                                }
-                                            ))
-                                            fig1.update_layout(width=200, height=120, margin=dict(t=50, b=10))
-                                            st.plotly_chart(fig1)
-                                        
-                                        with metric_col2:
-                                            fig2 = go.Figure(go.Indicator(
-                                                mode="gauge+number",
-                                                value=float(stats['std']),
-                                                title={'text': "Standard Deviation"},
-                                                domain={'x': [0.15, 0.85], 'y': [0, 1]},
-                                                gauge={
-                                                    'axis': {'range': [0, float(stats['std'] * 2)],
-                                                            'tickformat': '.2f'},
-                                                    'bar': {'color': "orange"},
-                                                    'steps': [
-                                                        {'range': [0, float(stats['std'])], 'color': "#d4f0ff"},
-                                                        {'range': [float(stats['std']), float(stats['std'] * 2)], 'color': "#ffeaa7"}
-                                                    ]
-                                                }
-                                            ))
-                                            fig2.update_layout(width=200, height=120, margin=dict(t=50, b=10))
-                                            st.plotly_chart(fig2)
-                                        
-                                        with metric_col3:
-                                            abnormal_count = int(abnormal_mask.sum())
-                                            fig3 = go.Figure(go.Indicator(
-                                                mode="gauge+number",
-                                                value=abnormal_count,
-                                                title={'text': "Abnormal Points"},
-                                                domain={'x': [0.15, 0.85], 'y': [0, 1]},
-                                                gauge={
-                                                    'axis': {'range': [0, max(10, abnormal_count * 2)]},
-                                                    'bar': {'color': "crimson"},
-                                                    'steps': [
-                                                        {'range': [0, 10], 'color': "#c8e6c9"},
-                                                        {'range': [10, 25], 'color': "#ffcc80"},
-                                                        {'range': [25, 100], 'color': "#ef5350"}
-                                                    ]
-                                                }
-                                            ))
-                                            fig3.update_layout(width=200, height=120, margin=dict(t=50, b=10))
-                                            st.plotly_chart(fig3)
-                                        
-                                        # Create plot
-                                        st.markdown("### 🧮 Plot Visualization")
-                                        fig = go.Figure()
-                                        
-                                        # Add main line plot
-                                        fig.add_trace(go.Scatter(
-                                            x=filtered_df[x_axis],
-                                            y=filtered_df[y_axis],
-                                            mode='lines',
-                                            name='Data'
-                                        ))
-                                        
-                                        # Add abnormal points
-                                        if not abnormal_points.empty:
-                                            fig.add_trace(go.Scatter(
-                                                x=abnormal_points[x_axis],
-                                                y=abnormal_points[y_axis],
-                                                mode='markers',
-                                                marker=dict(color='red', size=8),
-                                                name='Abnormal Points'
-                                            ))
-                                        
-                                        # Add mean line
-                                        mean_value = filtered_df[y_axis].mean()
-                                        fig.add_hline(y=mean_value, line_dash="dash", line_color="green",
-                                                    annotation_text=f"Mean: {mean_value:.2f}")
-                                        
-                                        # Get timestamp ticks if needed
-                                        if x_axis == 'timestamp_seconds':
-                                            tick_vals, tick_texts = get_timestamp_ticks(filtered_df[x_axis])
-                                            fig.update_xaxes(
-                                                tickvals=tick_vals,
-                                                ticktext=tick_texts,
-                                                title_text=get_axis_title(x_axis),
-                                                type='linear'
-                                            )
-                                        else:
-                                            fig.update_xaxes(title_text=x_axis)
-                                        
-                                        fig.update_layout(
-                                            height=900,
-                                            showlegend=True,
-                                            legend=dict(
-                                                orientation="h",
-                                                yanchor="bottom",
-                                                y=1.05,
-                                                xanchor="center",
-                                                x=0.5
-                                            ),
-                                            margin=dict(t=100),
-                                            yaxis=dict(
-                                                showticklabels=True,
-                                                title=y_axis
-                                            )
-                                        )
-                                        st.plotly_chart(fig, use_container_width=True)
-                                    else:
-                                        st.warning("No data points found in the selected range.")
-                                except Exception as e:
-                                    st.error(f"Error creating plot: {str(e)}")
-                    
-                    with tab2:
-                        st.markdown("### 📋 Data Preview")
-                        
-                        # Create a 20-80 split layout
-                        settings_col, data_col = st.columns([0.2, 0.8])
-                        
-                        with settings_col:
-                            st.markdown("#### ⚙️ Data Settings")
-                            
-                            # Add column management
-                            st.markdown("##### 🔧 Column Management")
-                            if isinstance(df, pd.DataFrame):
-                                df = add_remove_column(df, "Dataset")
-                        
-                        with data_col:
-                            if isinstance(df, pd.DataFrame) and len(df.index) > 0:
-                                # For ULG files after topic selection, show only selected axes
-                                if file_ext == ".ulg" and selected_assessment and selected_assessment != "None" and x_axis and y_axis:
-                                    # Only add Index column if it doesn't exist
-                                    if 'Index' not in df.columns:
-                                        df.insert(0, "Index", range(1, len(df) + 1))
-                                    
-                                    # Create a list of columns to display in order
-                                    display_cols = []
-                                    # Always start with Index
-                                    if 'Index' in df.columns:
-                                        display_cols.append('Index')
-                                    # Add timestamp_seconds next if available
-                                    if 'timestamp_seconds' in df.columns:
-                                        display_cols.append('timestamp_seconds')
-                                    # Add selected axes if not already included
-                                    if x_axis not in display_cols:
-                                        display_cols.append(x_axis)
-                                    if y_axis not in display_cols:
-                                        display_cols.append(y_axis)
-                                    
-                                    # Add any numeric columns from the assessment map if available
-                                    if selected_assessment in ASSESSMENT_Y_AXIS_MAP:
-                                        for col in ASSESSMENT_Y_AXIS_MAP[selected_assessment]:
-                                            if col in df.columns and col not in display_cols and pd.api.types.is_numeric_dtype(df[col]):
-                                                display_cols.append(col)
-                                    
-                                    # Display the filtered DataFrame
-                                    st.dataframe(
-                                        df[list(dict.fromkeys(display_cols))],  # Remove duplicates while preserving order
-                                        use_container_width=True,
-                                        height=500  # Increased height for better visibility
-                                    )
-                                else:
-                                    # For CSV files or when no topic/axes selected
-                                    display_cols = ['Index']
-                                    if 'timestamp_seconds' in df.columns:
-                                        display_cols.append('timestamp_seconds')
-                                    
-                                    # Add all numeric columns
-                                    numeric_cols = [col for col in df.columns if pd.api.types.is_numeric_dtype(df[col]) 
-                                                  and col not in display_cols]
-                                    display_cols.extend(numeric_cols)
-                                    
-                                    st.dataframe(
-                                        df[list(dict.fromkeys(display_cols))],  # Remove duplicates while preserving order
-                                        use_container_width=True,
-                                        height=500
-                                    )
+                        if selected_assessment == "None":
+                            st.info("Please select a topic")
             except Exception as e:
-                st.error(f"❌ Error loading file: {str(e)}")
-                df = None
+                st.error(f"Error processing file: {str(e)}")
+                selected_file = "None"
+    
+    # Process the selected file
+    if selected_file != "None" and uploaded_files:
+        try:
+            file = uploaded_files[file_names.index(selected_file)]
+            if file_ext == ".ulg":
+                if selected_assessment and selected_assessment != "None":
+                    selected_topic = assessment_to_topic.get(str(selected_assessment))
+                    if selected_topic and selected_topic in dfs:
+                        df = dfs[selected_topic]
+                        df = ensure_seconds_column(df)
+            else:
+                df, _ = load_data(file, file_ext, "")
+                df = ensure_seconds_column(df)
+            
+            if df is not None and isinstance(df, pd.DataFrame) and len(df.index) > 0:
+                # Add Index column if it doesn't exist
+                if 'Index' not in df.columns:
+                    df.insert(0, "Index", range(1, len(df) + 1))
+                
+                # Analysis tabs
+                tab1, tab2 = st.tabs(["📊 Plot", "📋 Data"])
+                
+                with tab1:
+                    st.markdown("<h3 style='font-size: 20px;'>📈 Plot Visualization</h3>", unsafe_allow_html=True)
+                    col1, col2 = st.columns([0.2, 0.8])
+                    
+                    with col1:
+                        st.markdown("<h3 style='font-size: 20px;'>🔍 Single File Analysis</h3>", unsafe_allow_html=True)
+                        st.markdown("<h4 style='font-size: 18px;'>📈 Parameters</h4>", unsafe_allow_html=True)
+                        # Get selected assessment/topic
+                        if file_ext == ".ulg" and selected_assessment and selected_assessment != "None":
+                            allowed_y_axis = ASSESSMENT_Y_AXIS_MAP.get(selected_assessment, [])
+                            allowed_y_axis = [col for col in allowed_y_axis if col in df.columns]
+                            if not allowed_y_axis:
+                                allowed_y_axis = [col for col in df.columns if pd.api.types.is_numeric_dtype(df[col])]
+                        else:
+                            allowed_y_axis = [col for col in df.columns if pd.api.types.is_numeric_dtype(df[col])]
+                        
+                        ALLOWED_X_AXIS = ["Index", "timestamp_seconds"] + [col for col in allowed_y_axis if col not in ["Index", "timestamp_seconds"]]
+                        
+                        # Set default x_axis based on file type
+                        if file_ext == ".ulg":
+                            default_x = 'timestamp_seconds' if 'timestamp_seconds' in ALLOWED_X_AXIS else 'Index'
+                        else:
+                            default_x = 'Index' if 'Index' in ALLOWED_X_AXIS else ALLOWED_X_AXIS[0]
+                        
+                        x_axis = st.selectbox("X-Axis", ALLOWED_X_AXIS, key="x_axis_single", index=ALLOWED_X_AXIS.index(default_x))
+                        
+                        # Set default y_axis based on file type and available columns
+                        if file_ext == ".csv" and 'cD2detailpeak' in allowed_y_axis:
+                            default_y = 'cD2detailpeak'
+                        else:
+                            default_y = allowed_y_axis[0] if allowed_y_axis else None
+                        
+                        y_axis = st.selectbox("Y-Axis", allowed_y_axis, key="y_axis_single", 
+                                            index=allowed_y_axis.index(default_y) if default_y in allowed_y_axis else 0)
+                        
+                        if x_axis and y_axis:
+                            z_threshold = st.slider("Z-Score Threshold", 1.0, 5.0, 3.0, 0.1, key="z-slider-single")
+                            x_min = st.number_input("X min", value=float(df[x_axis].min()))
+                            x_max = st.number_input("X max", value=float(df[x_axis].max()))
+                            y_min = st.number_input("Y min", value=float(df[y_axis].min()))
+                            y_max = st.number_input("Y max", value=float(df[y_axis].max()))
+
+                    with col2:
+                        if x_axis and y_axis:
+                            try:
+                                # Filter data
+                                filtered_df = df[(df[x_axis] >= x_min) & (df[x_axis] <= x_max) &
+                                               (df[y_axis] >= y_min) & (df[y_axis] <= y_max)]
+                                if len(filtered_df.index) > 0:
+                                    # Calculate statistics and detect abnormalities
+                                    stats = filtered_df[y_axis].describe()
+                                    abnormal_mask, z_scores = detect_abnormalities(filtered_df[y_axis], z_threshold)
+                                    filtered_df["Z_Score"] = z_scores
+                                    filtered_df["Abnormal"] = abnormal_mask
+                                    abnormal_points = filtered_df[filtered_df["Abnormal"]]
+                                    
+                                    # Display metrics
+                                    st.markdown("### 🎯 Metrics")
+                                    metric_col1, metric_col2, metric_col3 = st.columns([1, 1, 1])
+                                    
+                                    with metric_col1:
+                                        fig1 = go.Figure(go.Indicator(
+                                            mode="gauge+number",
+                                            value=float(stats['mean']),
+                                            title={'text': "Mean Value"},
+                                            domain={'x': [0.15, 0.85], 'y': [0, 1]},
+                                            gauge={
+                                                'axis': {'range': [float(stats['min']), float(stats['max'])],
+                                                        'tickformat': '.2f'},
+                                                'bar': {'color': "darkblue"},
+                                                'steps': [
+                                                    {'range': [float(stats['min']), float(stats['25%'])], 'color': "lightgray"},
+                                                    {'range': [float(stats['25%']), float(stats['75%'])], 'color': "gray"},
+                                                    {'range': [float(stats['75%']), float(stats['max'])], 'color': "darkgray"}
+                                                ]
+                                            }
+                                        ))
+                                        fig1.update_layout(width=200, height=120, margin=dict(t=50, b=10))
+                                        st.plotly_chart(fig1)
+                                    
+                                    with metric_col2:
+                                        fig2 = go.Figure(go.Indicator(
+                                            mode="gauge+number",
+                                            value=float(stats['std']),
+                                            title={'text': "Standard Deviation"},
+                                            domain={'x': [0.15, 0.85], 'y': [0, 1]},
+                                            gauge={
+                                                'axis': {'range': [0, float(stats['std'] * 2)],
+                                                        'tickformat': '.2f'},
+                                                'bar': {'color': "orange"},
+                                                'steps': [
+                                                    {'range': [0, float(stats['std'])], 'color': "#d4f0ff"},
+                                                    {'range': [float(stats['std']), float(stats['std'] * 2)], 'color': "#ffeaa7"}
+                                                ]
+                                            }
+                                        ))
+                                        fig2.update_layout(width=200, height=120, margin=dict(t=50, b=10))
+                                        st.plotly_chart(fig2)
+                                    
+                                    with metric_col3:
+                                        abnormal_count = int(abnormal_mask.sum())
+                                        fig3 = go.Figure(go.Indicator(
+                                            mode="gauge+number",
+                                            value=abnormal_count,
+                                            title={'text': "Abnormal Points"},
+                                            domain={'x': [0.15, 0.85], 'y': [0, 1]},
+                                            gauge={
+                                                'axis': {'range': [0, max(10, abnormal_count * 2)]},
+                                                'bar': {'color': "crimson"},
+                                                'steps': [
+                                                    {'range': [0, 10], 'color': "#c8e6c9"},
+                                                    {'range': [10, 25], 'color': "#ffcc80"},
+                                                    {'range': [25, 100], 'color': "#ef5350"}
+                                                ]
+                                            }
+                                        ))
+                                        fig3.update_layout(width=200, height=120, margin=dict(t=50, b=10))
+                                        st.plotly_chart(fig3)
+                                    
+                                    # Create plot
+                                    st.markdown("### 🧮 Plot Visualization")
+                                    fig = go.Figure()
+                                    
+                                    # Add main line plot
+                                    fig.add_trace(go.Scatter(
+                                        x=filtered_df[x_axis],
+                                        y=filtered_df[y_axis],
+                                        mode='lines',
+                                        name='Data'
+                                    ))
+                                    
+                                    # Add abnormal points
+                                    if not abnormal_points.empty:
+                                        fig.add_trace(go.Scatter(
+                                            x=abnormal_points[x_axis],
+                                            y=abnormal_points[y_axis],
+                                            mode='markers',
+                                            marker=dict(color='red', size=8),
+                                            name='Abnormal Points'
+                                        ))
+                                    
+                                    # Add mean line
+                                    mean_value = filtered_df[y_axis].mean()
+                                    fig.add_hline(y=mean_value, line_dash="dash", line_color="green",
+                                                annotation_text=f"Mean: {mean_value:.2f}")
+                                    
+                                    # Get timestamp ticks if needed
+                                    if x_axis == 'timestamp_seconds':
+                                        tick_vals, tick_texts = get_timestamp_ticks(filtered_df[x_axis])
+                                        fig.update_xaxes(
+                                            tickvals=tick_vals,
+                                            ticktext=tick_texts,
+                                            title_text=get_axis_title(x_axis),
+                                            type='linear'
+                                        )
+                                    else:
+                                        fig.update_xaxes(title_text=x_axis)
+                                    
+                                    fig.update_layout(
+                                        height=900,
+                                        showlegend=True,
+                                        legend=dict(
+                                            orientation="h",
+                                            yanchor="bottom",
+                                            y=1.05,
+                                            xanchor="center",
+                                            x=0.5
+                                        ),
+                                        margin=dict(t=100),
+                                        yaxis=dict(
+                                            showticklabels=True,
+                                            title=y_axis
+                                        )
+                                    )
+                                    st.plotly_chart(fig, use_container_width=True)
+                            except Exception as e:
+                               st.error(f"Error creating plot: {str(e)}")
+                    
+                with tab2:
+                    st.markdown("<h3 style='font-size: 20px;'>📋 Data Preview</h3>", unsafe_allow_html=True)
+                    
+                    # Create a 20-80 split layout
+                    settings_col, data_col = st.columns([0.2, 0.8])
+                    
+                    with settings_col:
+                        st.markdown("<h4 style='font-size: 18px;'>⚙️ Data Settings</h4>", unsafe_allow_html=True)
+                        
+                        # Add dataset selector and column management
+                        st.markdown("<h5 style='font-size: 16px;'>🔧 Column Management</h5>", unsafe_allow_html=True)
+                        if isinstance(df, pd.DataFrame):
+                            df = add_remove_column(df, "Dataset")
+                    
+                    with data_col:
+                        if isinstance(df, pd.DataFrame) and len(df.index) > 0:
+                            # For ULG files after topic selection, show only selected axes
+                            if file_ext == ".ulg" and selected_assessment and selected_assessment != "None" and x_axis and y_axis:
+                                # Only add Index column if it doesn't exist
+                                if 'Index' not in df.columns:
+                                    df.insert(0, "Index", range(1, len(df) + 1))
+                                
+                                # Create a list of columns to display in order
+                                display_cols = []
+                                # Always start with Index
+                                if 'Index' in df.columns:
+                                    display_cols.append('Index')
+                                # Add timestamp_seconds next if available
+                                if 'timestamp_seconds' in df.columns:
+                                    display_cols.append('timestamp_seconds')
+                                # Add selected axes if not already included
+                                if x_axis not in display_cols:
+                                    display_cols.append(x_axis)
+                                if y_axis not in display_cols:
+                                    display_cols.append(y_axis)
+                                
+                                # Add any numeric columns from the assessment map if available
+                                if selected_assessment in ASSESSMENT_Y_AXIS_MAP:
+                                    for col in ASSESSMENT_Y_AXIS_MAP[selected_assessment]:
+                                        if col in df.columns and col not in display_cols and pd.api.types.is_numeric_dtype(df[col]):
+                                            display_cols.append(col)
+                                
+                                # Display the filtered DataFrame
+                                st.dataframe(
+                                    df[list(dict.fromkeys(display_cols))],  # Remove duplicates while preserving order
+                                    use_container_width=True,
+                                    height=500  # Increased height for better visibility
+                                )
+                            else:
+                                # For CSV files or when no topic/axes selected
+                                display_cols = ['Index']
+                                if 'timestamp_seconds' in df.columns:
+                                    display_cols.append('timestamp_seconds')
+                                
+                                # Add all numeric columns
+                                numeric_cols = [col for col in df.columns if pd.api.types.is_numeric_dtype(df[col]) 
+                                              and col not in display_cols]
+                                display_cols.extend(numeric_cols)
+                                
+                                st.dataframe(
+                                    df[list(dict.fromkeys(display_cols))],  # Remove duplicates while preserving order
+                                    use_container_width=True,
+                                    height=500
+                                )
+        except Exception as e:
+            st.error(f"❌ Error loading file: {str(e)}")
+            df = None
     else:
         st.info("Please upload a valid data file to begin analysis.")
 
 # Comparative Analysis Page
 elif st.session_state.current_page == 'comparative_analysis':
-    # Add vertical space and back button
-    st.markdown("<br>", unsafe_allow_html=True)
-    if st.button("← Back to Home"):
-        change_page('home')
-        st.rerun()
-        
-    st.markdown("### 🚀 Comparative Analysis")
+    # Title and back button in the same line
+    col1, col2 = st.columns([0.85, 0.15])
+    with col1:
+        st.markdown("<h3 style='font-size: 20px;'>🚀 Comparative Analysis</h3>", unsafe_allow_html=True)
+    with col2:
+        if st.button("← Back to Home", use_container_width=True):
+            change_page('home')
+            st.rerun()
     
     # File upload section
-    st.markdown("<h4 style='font-size:20px; color:#4B8BBE;'>🔼 Upload Benchmark & Target Files</h4>", unsafe_allow_html=True)
+    st.markdown("<h4 style='font-size:18px; color:#4B8BBE;'>🔼 Upload Benchmark & Target Files</h4>", unsafe_allow_html=True)
 
     # Simulate a topbar with two upload sections
     top_col1, top_col2, top_col3, top_col4 = st.columns(4)
@@ -844,7 +876,7 @@ elif st.session_state.current_page == 'comparative_analysis':
     # Show topic selection only after both ULG files are selected
     if (selected_bench != "None" and selected_val != "None" and 
         b_file_ext == ".ulg" and v_file_ext == ".ulg"):
-        st.markdown("### 📊 Select Analysis Topic")
+        st.markdown("<h3 style='font-size: 20px;'>📊 Select Analysis Topic</h3>", unsafe_allow_html=True)
         assessment_names = ["None"] + [a for _, a in TOPIC_ASSESSMENT_PAIRS]
         assessment_to_topic = {a: t for t, a in TOPIC_ASSESSMENT_PAIRS}
         selected_assessment = st.selectbox("Select Topic", options=assessment_names, key="common_topic")
@@ -870,16 +902,16 @@ elif st.session_state.current_page == 'comparative_analysis':
         
         # Data Tab
         with tab2:
-            st.markdown("### 📋 Data Preview")
+            st.markdown("<h3 style='font-size: 20px;'>📋 Data Preview</h3>", unsafe_allow_html=True)
             
             # Create a 20-80 split layout
             settings_col, data_col = st.columns([0.2, 0.8])
             
             with settings_col:
-                st.markdown("#### ⚙️ Data Settings")
+                st.markdown("<h4 style='font-size: 18px;'>⚙️ Data Settings</h4>", unsafe_allow_html=True)
                 
                 # Add dataset selector and column management
-                st.markdown("##### 🔧 Column Management")
+                st.markdown("<h5 style='font-size: 16px;'>🔧 Column Management</h5>", unsafe_allow_html=True)
                 dataset_choice = st.selectbox(
                     "Select Dataset to Edit",
                     ["Benchmark", "Target", "Both"],
@@ -903,7 +935,7 @@ elif st.session_state.current_page == 'comparative_analysis':
                 col1, col2 = st.columns(2)
                 
                 with col1:
-                    st.markdown("#### Benchmark Data")
+                    st.markdown("<h4 style='font-size: 18px;'>Benchmark Data</h4>", unsafe_allow_html=True)
                     if isinstance(b_df, pd.DataFrame):
                         # Add Index if not present
                         if 'Index' not in b_df.columns:
@@ -939,7 +971,7 @@ elif st.session_state.current_page == 'comparative_analysis':
                         st.warning("⚠️ Benchmark data not properly loaded")
                 
                 with col2:
-                    st.markdown("#### Target Data")
+                    st.markdown("<h4 style='font-size: 18px;'>Target Data</h4>", unsafe_allow_html=True)
                     if isinstance(v_df, pd.DataFrame):
                         # Add Index if not present
                         if 'Index' not in v_df.columns:
@@ -976,11 +1008,11 @@ elif st.session_state.current_page == 'comparative_analysis':
                     
         # Plot Tab
         with tab1:
-            st.markdown("### 🎯 Comparative Analysis")
             col1, col2 = st.columns([0.2, 0.8])
             
             with col1:
-                st.markdown("#### 📈 Parameters")
+                st.markdown("<h3 style='font-size: 20px;'>🎯 Comparative Analysis</h3>", unsafe_allow_html=True)
+                st.markdown("<h4 style='font-size: 18px;'>📈 Parameters</h4>", unsafe_allow_html=True)
                 # Get common columns
                 b_df = st.session_state.get("b_df")
                 v_df = st.session_state.get("v_df")
@@ -1093,7 +1125,7 @@ elif st.session_state.current_page == 'comparative_analysis':
                         abnormal_count = int(abnormal_mask.sum())
                         
                         # Display metrics
-                        st.markdown("### 🎯 Metrics")
+                        st.markdown("<h3 style='font-size: 20px;'>🎯 Metrics</h3>", unsafe_allow_html=True)
                         metric_col1, metric_col2, metric_col3 = st.columns([1, 1, 1])
                         
                         with metric_col1:
@@ -1160,7 +1192,7 @@ elif st.session_state.current_page == 'comparative_analysis':
                             fig3.update_layout(width=200, height=140, margin=dict(t=60, b=10))
                             st.plotly_chart(fig3)
                         
-                        st.markdown("### 🧮 Plot Visualization")
+                        st.markdown("<h3 style='font-size: 20px;'>🧮 Plot Visualization</h3>", unsafe_allow_html=True)
                         
                         if plot_mode == "Superimposed":
                             fig = go.Figure()
