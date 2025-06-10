@@ -97,19 +97,50 @@ def change_page(page):
 
 # Utility functions
 def load_csv(file):
-    file.seek(0)
-    return pd.read_csv(StringIO(file.read().decode("utf-8")))
+    # Create a temporary file to store the content
+    with tempfile.NamedTemporaryFile(delete=False, suffix='.csv') as tmp_file:
+        # If file is a string (path), read directly
+        if isinstance(file, str):
+            with open(file, 'rb') as f:
+                tmp_file.write(f.read())
+        else:
+            # If file is a file object, write its content
+            file.seek(0)
+            tmp_file.write(file.read())
+        
+        # Read the CSV from the temporary file
+        return pd.read_csv(tmp_file.name)
 
 def load_ulog(file, key_suffix=""):
     ALLOWED_TOPICS = set(t for t, _ in TOPIC_ASSESSMENT_PAIRS)
-    ulog = ULog(file)
-    extracted_dfs = {msg.name: pd.DataFrame(msg.data) for msg in ulog.data_list}
-    filtered_dfs = {topic: df for topic, df in extracted_dfs.items() if topic in ALLOWED_TOPICS}
-    topic_names = ["None"] + list(filtered_dfs.keys())
-    if not topic_names:
-        st.warning("No extractable topics found in ULOG file.")
-        return {}, []
-    return filtered_dfs, topic_names
+    
+    # Create a temporary file to store the content
+    with tempfile.NamedTemporaryFile(delete=False, suffix='.ulg') as tmp_file:
+        # If file is a string (path), read directly
+        if isinstance(file, str):
+            with open(file, 'rb') as f:
+                tmp_file.write(f.read())
+        else:
+            # If file is a file object, write its content
+            file.seek(0)
+            tmp_file.write(file.read())
+    
+    # Process the ULog file
+    try:
+        ulog = ULog(tmp_file.name)
+        extracted_dfs = {msg.name: pd.DataFrame(msg.data) for msg in ulog.data_list}
+        filtered_dfs = {topic: df for topic, df in extracted_dfs.items() if topic in ALLOWED_TOPICS}
+        topic_names = ["None"] + list(filtered_dfs.keys())
+        if not topic_names:
+            st.warning("No extractable topics found in ULOG file.")
+            return {}, []
+        return filtered_dfs, topic_names
+    finally:
+        # Clean up the temporary file
+        try:
+            os.unlink(tmp_file.name)
+        except:
+            pass
 
 def get_axis_title(axis_name):
     if axis_name == 'timestamp_seconds':
@@ -392,33 +423,82 @@ if st.session_state.current_page == 'home':
     """, unsafe_allow_html=True)
     
     data_source = st.radio(
-        "Where would you like to get the data from?",
-        ["A", "B", "Other"],
-        help="Choose your preferred data source for analysis",
-        horizontal=True
+        "Choose your preferred data source for analysis",
+        ["ROTRIX Account", "My Shared Files", "Other"],
+        #help="Choose your preferred data source for analysis",
+        horizontal=False
     )
     st.session_state.data_source = data_source
 
-    if data_source in ["A", "B"]:
+    if data_source == "ROTRIX Account":
+        st.markdown("""
+        <style>
+        div[data-testid="stExpander"] {
+            max-width: 600px;
+        }
+        div.stButton button {
+            float: right;
+            margin-right: -10px;
+        }
+        </style>
+        """, unsafe_allow_html=True)
+        with st.expander("ROTRIX Account Details", expanded=True):
+            col1, col2 = st.columns([4, 0.5])
+            with col1:
+                st.text_input("Account ID", value="ROTRIX_123", disabled=True)
+                st.text_input("Password", value="••••••••", type="password", disabled=True)
+                login_col1, login_col2 = st.columns([1, 2])
+                with login_col1:
+                    if st.button("Login", type="primary", use_container_width=True):
+                        st.success("Login successful!")
+                        st.rerun()
+            with col2:
+                if st.button("❌", key="close_account", help="Close"):
+                    st.rerun()
+        st.info("🚧 This feature is currently under development. Please select 'Other' to proceed.")
+        st.stop()
+    elif data_source == "My Shared Files":
+        st.markdown("""
+        <style>
+        div[data-testid="stExpander"] {
+            max-width: 600px;
+        }
+        div.stButton button {
+            float: right;
+            margin-right: -10px;
+        }
+        </style>
+        """, unsafe_allow_html=True)
+        with st.expander("My Shared Files", expanded=True):
+            col1, col2 = st.columns([4, 0.5])
+            with col1:
+                st.markdown("### Recent Files")
+                st.markdown("- 📄 analysis_data_001.ulg")
+                st.markdown("- 📄 benchmark_test.csv")
+                st.markdown("- 📄 performance_log.ulg")
+            with col2:
+                if st.button("❌", key="close_shared", help="Close"):
+                    st.rerun()
+        st.info("🚧 This feature is currently under development. Please select 'Other' to proceed.")
+        st.stop()
+    elif data_source == "B":
         st.info("🚧 This feature is currently under development. Please select 'Other' to proceed.")
         st.stop()
 
-    # # Analysis Type Selection
-    # st.markdown("""
-    # <div style='padding: 20px 0 10px 0;'>
-    #     <div style='display: flex; align-items: center; gap: 8px;'>
-    #         <span style='font-size: 1.2em;'>🔍</span>
-    #         <h2 style='color: #2E86C1; margin: 0; font-size: 1.2em;'>Analysis Type</h2>
-    #     </div>
-    #     <p style='color: #666; margin: 5px 0 0 0;'>Select your preferred analysis method</p>
-    # </div>
-    # """, unsafe_allow_html=True)
+    # st.markdown("<div style='margin: 20px 0;'></div>", unsafe_allow_html=True)
 
-    # col1, col2 = st.columns(2)
+    # col1, col2, col3 = st.columns(3)
     
     # with col1:
+    #     analysis_type = st.radio(
+    #         "Choose the type of analysis you want to perform",
+    #         ["Single File Analysis", "Comparative Analysis"],
+    #         #help="Choose the type of analysis you want to perform"
+    #     )
+    
+    # with col2:
     #     st.markdown("""
-    #     <div style='background-color: white; padding: 20px; border-radius: 10px; border: 1px solid #e1e4e8;'>
+    #     <div style='background-color: white; padding: 20px; border-radius: 10px; border: 1px solid #e1e4e8; height: 100%;'>
     #         <div style='display: flex; align-items: center; gap: 8px; margin-bottom: 10px;'>
     #             <span>📈</span>
     #             <h3 style='color: #2E86C1; margin: 0; font-size: 1em;'>Single File Analysis</h3>
@@ -433,9 +513,9 @@ if st.session_state.current_page == 'home':
     #     </div>
     #     """, unsafe_allow_html=True)
 
-    # with col2:
+    # with col3:
     #     st.markdown("""
-    #     <div style='background-color: white; padding: 20px; border-radius: 10px; border: 1px solid #e1e4e8;'>
+    #     <div style='background-color: white; padding: 20px; border-radius: 10px; border: 1px solid #e1e4e8; height: 100%;'>
     #         <div style='display: flex; align-items: center; gap: 8px; margin-bottom: 10px;'>
     #             <span>🔄</span>
     #             <h3 style='color: #2E86C1; margin: 0; font-size: 1em;'>Comparative Analysis</h3>
@@ -450,20 +530,293 @@ if st.session_state.current_page == 'home':
     #     </div>
     #     """, unsafe_allow_html=True)
 
-    st.markdown("<div style='margin: 20px 0;'></div>", unsafe_allow_html=True)
+    # st.markdown("<div style='margin: 20px 0;'></div>", unsafe_allow_html=True)
     analysis_type = st.radio(
-        "Select your analysis mode:",
+        "Choose the type of analysis you want to perform",
         ["Single File Analysis", "Comparative Analysis"],
-        help="Choose the type of analysis you want to perform"
+        #help="Choose the type of analysis you want to perform"
     )
     st.session_state.analysis_type = analysis_type
 
+    # File upload section based on analysis type
+    if analysis_type == "Single File Analysis":
+        st.markdown("<h4 style='font-size:18px; color:#4B8BBE;'>🔼 Upload Analysis File</h4>", unsafe_allow_html=True)
+        
+        # File upload layout
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            # Initialize uploaded files list in session state
+            if "uploaded_files" not in st.session_state:
+                st.session_state.uploaded_files = []
+            if "show_share_modal" not in st.session_state:
+                st.session_state.show_share_modal = None
+
+            # Upload file with hidden default display
+            uploaded_file = st.file_uploader("", type=["csv", "ulg"], key="uploader", label_visibility="collapsed")
+
+            # Add to session state list if it's a new file
+            if uploaded_file and uploaded_file.name not in [f.name for f in st.session_state.uploaded_files]:
+                st.session_state.uploaded_files.append(uploaded_file)
+
+            # Display custom file list
+            for i, file in enumerate(st.session_state.uploaded_files):
+                col_name, col_share, col_remove = st.columns([8, 1, 1])
+                with col_name:
+                    st.markdown(f"📎 {file.name}")
+                with col_share:
+                    if st.button("🔗", key=f"share_{i}", help="Copy share link"):
+                        st.session_state.show_share_modal = i
+                with col_remove:
+                    if st.button("🗑️", key=f"remove_{i}", help="Remove file"):
+                        st.session_state.uploaded_files.pop(i)
+                        st.rerun()
+                
+                # Show share modal for this file if selected
+                if st.session_state.show_share_modal == i:
+                    with st.expander("Share Options", expanded=True):
+                        # st.markdown("### Share Options")
+                        
+                        # Create columns for share options
+                        share_col1, share_col2, share_col3, share_col4 = st.columns([1, 1, 1, 0.5])
+                        
+                        with share_col1:
+                            if st.button("📁 My Shared Files", key=f"shared_files_{i}", use_container_width=True):
+                                st.toast("Opening My Shared Files...")
+                                # Add shared files logic here
+                        
+                        with share_col2:
+                            if st.button("👤 Rotrix Account", key=f"rotrix_account_{i}", use_container_width=True):
+                                st.toast("Opening Rotrix Account...")
+                                # Add Rotrix account logic here
+                        
+                        with share_col3:
+                            share_link = f"http://localhost:8501/share?file={file.name}"
+                            if st.button("📋 Copy Link", key=f"copy_link_{i}", use_container_width=True):
+                                st.code(share_link, language="text")
+                                st.toast("Link copied to clipboard!")
+                        
+                        with share_col4:
+                            if st.button("❌", key=f"close_share_{i}", use_container_width=True):
+                                st.session_state.show_share_modal = None
+                                st.rerun()
+
+            if not st.session_state.uploaded_files:
+                st.info("📂 Upload File")
+        
+        with col2:
+            selected_file = st.selectbox("Select File", ["None"] + [f.name for f in st.session_state.uploaded_files], key="file_selector")
+            if selected_file == "None":
+                st.info("📋 Select File")
+            else:
+                st.success(f"✅ {selected_file}")
+                
+            # Store selected file in session state
+            st.session_state.selected_single_file = selected_file if selected_file != "None" else None
+            if selected_file != "None" and st.session_state.uploaded_files:
+                try:
+                    file = [f for f in st.session_state.uploaded_files if f.name == selected_file][0]
+                    # Store file content in session state
+                    file.seek(0)
+                    st.session_state.selected_single_file_content = file.read()
+                    file.seek(0)  # Reset file pointer for future use
+                except Exception as e:
+                    st.error("Error loading file")
+                
+    else:  # Comparative Analysis
+        st.markdown("<h4 style='font-size:18px; color:#4B8BBE;'>🔼 Upload Benchmark & Target Files</h4>", unsafe_allow_html=True)
+        
+        # File upload layout
+        col1, col2, col3, col4 = st.columns(4)
+        
+        with col1:
+            # Initialize uploaded files list in session state
+            if "benchmark_files" not in st.session_state:
+                st.session_state.benchmark_files = []
+            if "show_share_modal_bench" not in st.session_state:
+                st.session_state.show_share_modal_bench = None
+
+            benchmark_file = st.file_uploader("", type=["csv", "ulg"], key="benchmark_uploader", label_visibility="collapsed")
+            if benchmark_file and benchmark_file.name not in [f.name for f in st.session_state.benchmark_files]:
+                st.session_state.benchmark_files.append(benchmark_file)
+
+            # Display custom benchmark file list
+            for i, file in enumerate(st.session_state.benchmark_files):
+                col_name, col_share, col_remove = st.columns([8, 1, 1])
+                with col_name:
+                    st.markdown(f"📎 {file.name}")
+                with col_share:
+                    if st.button("🔗", key=f"share_bench_{i}", help="Copy share link"):
+                        st.session_state.show_share_modal_bench = i
+                with col_remove:
+                    if st.button("🗑️", key=f"remove_bench_{i}", help="Remove file"):
+                        st.session_state.benchmark_files.pop(i)
+                        st.rerun()
+                
+                # Show share modal for benchmark file
+                if st.session_state.show_share_modal_bench == i:
+                    with st.expander("Share Options", expanded=True):
+                        share_col1, share_col2, share_col3, share_col4 = st.columns([1, 1, 1, 0.5])
+                        
+                        with share_col1:
+                            if st.button("📁 My Shared Files", key=f"shared_files_bench_{i}", use_container_width=True):
+                                st.toast("Opening My Shared Files...")
+                                # Add shared files logic here
+                        
+                        with share_col2:
+                            if st.button("👤 Rotrix Account", key=f"rotrix_account_bench_{i}", use_container_width=True):
+                                st.toast("Opening Rotrix Account...")
+                                # Add Rotrix account logic here
+                        
+                        with share_col3:
+                            share_link = f"http://localhost:8501/share?file={file.name}"
+                            if st.button("📋 Copy Link", key=f"copy_link_bench_{i}", use_container_width=True):
+                                st.code(share_link, language="text")
+                                st.toast("Link copied to clipboard!")
+                        
+                        with share_col4:
+                            if st.button("❌", key=f"close_share_bench_{i}", use_container_width=True):
+                                st.session_state.show_share_modal_bench = None
+                                st.rerun()
+
+            if not st.session_state.benchmark_files:
+                st.info("📂 Upload Benchmark File")
+        
+        with col2:
+            # Initialize uploaded files list in session state
+            if "target_files" not in st.session_state:
+                st.session_state.target_files = []
+            if "show_share_modal_target" not in st.session_state:
+                st.session_state.show_share_modal_target = None
+
+            target_file = st.file_uploader("", type=["csv", "ulg"], key="target_uploader", label_visibility="collapsed")
+            if target_file and target_file.name not in [f.name for f in st.session_state.target_files]:
+                st.session_state.target_files.append(target_file)
+
+            # Display custom target file list
+            for i, file in enumerate(st.session_state.target_files):
+                col_name, col_share, col_remove = st.columns([8, 1, 1])
+                with col_name:
+                    st.markdown(f"📎 {file.name}")
+                with col_share:
+                    if st.button("🔗", key=f"share_target_{i}", help="Copy share link"):
+                        st.session_state.show_share_modal_target = i
+                with col_remove:
+                    if st.button("🗑️", key=f"remove_target_{i}", help="Remove file"):
+                        st.session_state.target_files.pop(i)
+                        st.rerun()
+                
+                # Show share modal for target file
+                if st.session_state.show_share_modal_target == i:
+                    with st.expander("Share Options", expanded=True):
+                        share_col1, share_col2, share_col3, share_col4 = st.columns([1, 1, 1, 0.5])
+                        
+                        with share_col1:
+                            if st.button("📁 My Shared Files", key=f"shared_files_target_{i}", use_container_width=True):
+                                st.toast("Opening My Shared Files...")
+                                # Add shared files logic here
+                        
+                        with share_col2:
+                            if st.button("👤 Rotrix Account", key=f"rotrix_account_target_{i}", use_container_width=True):
+                                st.toast("Opening Rotrix Account...")
+                                # Add Rotrix account logic here
+                        
+                        with share_col3:
+                            share_link = f"http://localhost:8501/share?file={file.name}"
+                            if st.button("📋 Copy Link", key=f"copy_link_target_{i}", use_container_width=True):
+                                st.code(share_link, language="text")
+                                st.toast("Link copied to clipboard!")
+                        
+                        with share_col4:
+                            if st.button("❌", key=f"close_share_target_{i}", use_container_width=True):
+                                st.session_state.show_share_modal_target = None
+                                st.rerun()
+
+            if not st.session_state.target_files:
+                st.info("📂 Upload Target File")
+        
+        with col3:
+            selected_bench = st.selectbox("Select Benchmark File", ["None"] + [f.name for f in st.session_state.benchmark_files])
+            if selected_bench == "None":
+                st.info("📋 Select a Benchmark file to proceed")
+            
+            # Store benchmark selection in session state
+            st.session_state.selected_bench = selected_bench if selected_bench != "None" else None
+            if selected_bench != "None" and st.session_state.benchmark_files:
+                try:
+                    file = [f for f in st.session_state.benchmark_files if f.name == selected_bench][0]
+                    # Store file content in session state
+                    file.seek(0)
+                    st.session_state.selected_bench_content = file.read()
+                    file.seek(0)  # Reset file pointer for future use
+                except Exception as e:
+                    st.error("Error loading benchmark file")
+        
+        with col4:
+            selected_val = st.selectbox("Select Target File", ["None"] + [f.name for f in st.session_state.target_files])
+            if selected_val == "None":
+                st.info("📋 Select a Target file to proceed")
+            
+            # Store validation selection in session state
+            st.session_state.selected_val = selected_val if selected_val != "None" else None
+            if selected_val != "None" and st.session_state.target_files:
+                try:
+                    file = [f for f in st.session_state.target_files if f.name == selected_val][0]
+                    # Store file content in session state
+                    file.seek(0)
+                    st.session_state.selected_val_content = file.read()
+                    file.seek(0)  # Reset file pointer for future use
+                except Exception as e:
+                    st.error("Error loading target file")
+
+    # Topic selection for ULG files if needed
+    if st.session_state.analysis_type == "Single File Analysis":
+        selected_file = st.session_state.get('selected_single_file')
+        if selected_file and selected_file.endswith('.ulg'):
+            st.markdown("<h4 style='font-size:18px; color:#4B8BBE;'>📊 Select Topic</h4>", unsafe_allow_html=True)
+            assessment_names = ["None"] + [a for _, a in TOPIC_ASSESSMENT_PAIRS]
+            selected_assessment = st.selectbox("Select Topic", options=assessment_names)
+            if selected_assessment == "None":
+                st.info("Please select a topic to analyze")
+            st.session_state.selected_assessment = selected_assessment
+    else:  # Comparative Analysis 
+        # For comparative analysis, only show topic selection if both files are ULG
+        selected_bench = st.session_state.get('selected_bench')
+        selected_val = st.session_state.get('selected_val')
+        if (selected_bench and selected_val and 
+            selected_bench.endswith('.ulg') and selected_val.endswith('.ulg')):
+            st.markdown("<h4 style='font-size:18px; color:#4B8BBE;'>📊 Select Topic</h4>", unsafe_allow_html=True)
+            assessment_names = ["None"] + [a for _, a in TOPIC_ASSESSMENT_PAIRS]
+            selected_assessment = st.selectbox("Select Topic", options=assessment_names)
+            if selected_assessment == "None":
+                st.info("Please select a topic to analyze")
+            st.session_state.selected_assessment = selected_assessment
+
     # Proceed Button
+    proceed_disabled = False
+    if st.session_state.analysis_type == "Single File Analysis":
+        selected_file = st.session_state.get('selected_single_file')
+        if not selected_file:
+            proceed_disabled = True
+        elif selected_file and selected_file.endswith('.ulg'):
+            if not st.session_state.get('selected_assessment') or st.session_state.get('selected_assessment') == "None":
+                proceed_disabled = True
+    else:  # Comparative Analysis
+        selected_bench = st.session_state.get('selected_bench')
+        selected_val = st.session_state.get('selected_val')
+        if not (selected_bench and selected_val):
+            proceed_disabled = True
+        elif (selected_bench and selected_val and 
+              selected_bench.endswith('.ulg') and selected_val.endswith('.ulg')):
+            if not st.session_state.get('selected_assessment') or st.session_state.get('selected_assessment') == "None":
+                proceed_disabled = True
+    
     if st.button("Proceed to Analysis", 
                  help="Click to continue with your selected analysis type",
                  type="primary",
-                 use_container_width=True):
-        if analysis_type == "Single File Analysis":
+                 use_container_width=True,
+                 disabled=proceed_disabled):
+        if st.session_state.analysis_type == "Single File Analysis":
             change_page('single_analysis')
         else:
             change_page('comparative_analysis')
@@ -480,65 +833,84 @@ elif st.session_state.current_page == 'single_analysis':
             change_page('home')
             st.rerun()
     
-    # File upload section in a single row
-    col1, col2, col3 = st.columns(3)
-    
     # Initialize variables
-    uploaded_files = None
-    selected_file = "None"
+    selected_file = st.session_state.get('selected_single_file', "None")
     selected_assessment = "None"
     df = None
     file_ext = None
     
-    # File upload column
-    with col1:
-        uploaded_files = st.file_uploader("📂 Upload File", type=["csv", "ulg"], accept_multiple_files=True, label_visibility="collapsed")
-        if uploaded_files:
-            st.success(f"✅ {len(uploaded_files)} file(s) uploaded")
-        else:
-            st.info("📂 Upload File")
-    
-    # File selection column
-    with col2:
-        file_names = [f.name for f in uploaded_files] if uploaded_files else []
-        selected_file = st.selectbox("Select File", ["None"] + file_names, key="file_selector", label_visibility="collapsed")
-        if selected_file == "None":
-            st.info("📋 Select File")
-        else:
-            st.success(f"✅ {selected_file}")
-    
-    # Topic selection column (for ULG files)
-    with col3:
-        if selected_file != "None" and uploaded_files:
-            try:
-                file = uploaded_files[file_names.index(selected_file)]
-                file_ext = os.path.splitext(file.name)[-1].lower()
-                
-                if file_ext == ".ulg":
-                    dfs, topics = load_ulog(file)
-                    if topics:
-                        assessment_names = ["None"] + [a for _, a in TOPIC_ASSESSMENT_PAIRS]
-                        assessment_to_topic = {a: t for t, a in TOPIC_ASSESSMENT_PAIRS}
-                        selected_assessment = st.selectbox("Select Topic", options=assessment_names)
-                        if selected_assessment == "None":
-                            st.info("Please select a topic")
-            except Exception as e:
-                st.error(f"Error processing file: {str(e)}")
-                selected_file = "None"
+    # Topic selection for ULG files
+    if selected_file != "None":
+        file_ext = os.path.splitext(selected_file)[-1].lower()
+        if file_ext == ".ulg":
+            assessment_names = ["None"] + [a for _, a in TOPIC_ASSESSMENT_PAIRS]
+            assessment_to_topic = {a: t for t, a in TOPIC_ASSESSMENT_PAIRS}
+            
+            # Get the topic selected from home page
+            default_assessment = st.session_state.get('selected_assessment')
+            default_index = 0  # Default to "None"
+            if isinstance(default_assessment, str) and default_assessment in assessment_names:
+                default_index = assessment_names.index(default_assessment)
+            
+            selected_assessment = st.selectbox(
+                "Change Topic", 
+                options=assessment_names,
+                index=default_index
+            )
+            
+            # Update session state with new topic selection
+            if selected_assessment != st.session_state.get('selected_assessment'):
+                st.session_state.selected_assessment = selected_assessment
+            
+            if selected_assessment == "None":
+                st.info("Please select a topic to analyze")
     
     # Process the selected file
-    if selected_file != "None" and uploaded_files:
-        try:
-            file = uploaded_files[file_names.index(selected_file)]
-            if file_ext == ".ulg":
-                if selected_assessment and selected_assessment != "None":
-                    selected_topic = assessment_to_topic.get(str(selected_assessment))
-                    if selected_topic and selected_topic in dfs:
-                        df = dfs[selected_topic]
-                        df = ensure_seconds_column(df)
-            else:
-                df, _ = load_data(file, file_ext, "")
-                df = ensure_seconds_column(df)
+    if selected_file != "None":
+        file_content = st.session_state.get('selected_single_file_content')
+        if file_content:
+            # Get file extension from selected file name
+            file_ext = os.path.splitext(selected_file)[-1].lower()
+            df = None
+            
+            # Create a temporary file with the content
+            tmp_file = None
+            try:
+                tmp_file = tempfile.NamedTemporaryFile(delete=False, suffix=file_ext)
+                if isinstance(file_content, str):
+                    tmp_file.write(file_content.encode('utf-8'))
+                else:
+                    tmp_file.write(file_content)
+                tmp_file.flush()
+                tmp_file.close()
+                
+                if file_ext == ".ulg":
+                    dfs, topics = load_ulog(tmp_file.name)
+                    # Get topic from session state or current selection
+                    current_assessment = st.session_state.get('selected_assessment', selected_assessment)
+                    if current_assessment and current_assessment != "None":
+                        selected_topic = assessment_to_topic.get(str(current_assessment))
+                        if selected_topic and selected_topic in dfs:
+                            df = dfs[selected_topic]
+                            df = ensure_seconds_column(df)
+                            if 'Index' not in df.columns:
+                                df.insert(0, 'Index', range(1, len(df) + 1))
+                            if 'timestamp_seconds' not in df.columns:
+                                df['timestamp_seconds'] = df.index
+                else:
+                    df, _ = load_data(tmp_file.name, file_ext, "")
+                    df = ensure_seconds_column(df)
+                    if 'Index' not in df.columns:
+                        df.insert(0, 'Index', range(1, len(df) + 1))
+                    if 'timestamp_seconds' not in df.columns:
+                        df['timestamp_seconds'] = df.index
+            finally:
+                # Clean up temporary file
+                if tmp_file:
+                    try:
+                        os.unlink(tmp_file.name)
+                    except:
+                        pass
             
             if df is not None and isinstance(df, pd.DataFrame) and len(df.index) > 0:
                 # Add Index column if it doesn't exist
@@ -549,11 +921,11 @@ elif st.session_state.current_page == 'single_analysis':
                 tab1, tab2 = st.tabs(["📊 Plot", "📋 Data"])
                 
                 with tab1:
-                    st.markdown("<h3 style='font-size: 20px;'>📈 Plot Visualization</h3>", unsafe_allow_html=True)
+                    # st.markdown("<h3 style='font-size: 20px;'>📈 Plot Visualization</h3>", unsafe_allow_html=True)
                     col1, col2 = st.columns([0.2, 0.8])
                     
                     with col1:
-                        st.markdown("<h3 style='font-size: 20px;'>🔍 Single File Analysis</h3>", unsafe_allow_html=True)
+                        # st.markdown("<h3 style='font-size: 20px;'>🔍 Single File Analysis</h3>", unsafe_allow_html=True)
                         st.markdown("<h4 style='font-size: 18px;'>📈 Parameters</h4>", unsafe_allow_html=True)
                         # Get selected assessment/topic
                         if file_ext == ".ulg" and selected_assessment and selected_assessment != "None":
@@ -585,10 +957,13 @@ elif st.session_state.current_page == 'single_analysis':
                         
                         if x_axis and y_axis:
                             z_threshold = st.slider("Z-Score Threshold", 1.0, 5.0, 3.0, 0.1, key="z-slider-single")
-                            x_min = st.number_input("X min", value=float(df[x_axis].min()))
-                            x_max = st.number_input("X max", value=float(df[x_axis].max()))
-                            y_min = st.number_input("Y min", value=float(df[y_axis].min()))
-                            y_max = st.number_input("Y max", value=float(df[y_axis].max()))
+                            col_min, col_max = st.columns(2)
+                            with col_min:
+                                x_min = st.number_input("X min", value=float(df[x_axis].min()))
+                                y_min = st.number_input("Y min", value=float(df[y_axis].min()))
+                            with col_max:
+                                x_max = st.number_input("X max", value=float(df[x_axis].max()))
+                                y_max = st.number_input("Y max", value=float(df[y_axis].max()))
 
                     with col2:
                         if x_axis and y_axis:
@@ -669,60 +1044,62 @@ elif st.session_state.current_page == 'single_analysis':
                                     
                                     # Create plot
                                     st.markdown("### 🧮 Plot Visualization")
-                                    fig = go.Figure()
-                                    
-                                    # Add main line plot
-                                    fig.add_trace(go.Scatter(
-                                        x=filtered_df[x_axis],
-                                        y=filtered_df[y_axis],
-                                        mode='lines',
-                                        name='Data'
-                                    ))
-                                    
-                                    # Add abnormal points
-                                    if not abnormal_points.empty:
+                                    plot_container = st.container()
+                                    with plot_container:
+                                        fig = go.Figure()
+                                        
+                                        # Add main line plot
                                         fig.add_trace(go.Scatter(
-                                            x=abnormal_points[x_axis],
-                                            y=abnormal_points[y_axis],
-                                            mode='markers',
-                                            marker=dict(color='red', size=8),
-                                            name='Abnormal Points'
+                                            x=filtered_df[x_axis],
+                                            y=filtered_df[y_axis],
+                                            mode='lines',
+                                            name='Data'
                                         ))
-                                    
-                                    # Add mean line
-                                    mean_value = filtered_df[y_axis].mean()
-                                    fig.add_hline(y=mean_value, line_dash="dash", line_color="green",
-                                                annotation_text=f"Mean: {mean_value:.2f}")
-                                    
-                                    # Get timestamp ticks if needed
-                                    if x_axis == 'timestamp_seconds':
-                                        tick_vals, tick_texts = get_timestamp_ticks(filtered_df[x_axis])
-                                        fig.update_xaxes(
-                                            tickvals=tick_vals,
-                                            ticktext=tick_texts,
-                                            title_text=get_axis_title(x_axis),
-                                            type='linear'
+                                        
+                                        # Add abnormal points
+                                        if not abnormal_points.empty:
+                                            fig.add_trace(go.Scatter(
+                                                x=abnormal_points[x_axis],
+                                                y=abnormal_points[y_axis],
+                                                mode='markers',
+                                                marker=dict(color='red', size=8),
+                                                name='Abnormal Points'
+                                            ))
+                                        
+                                        # Add mean line
+                                        mean_value = filtered_df[y_axis].mean()
+                                        fig.add_hline(y=mean_value, line_dash="dash", line_color="green",
+                                                    annotation_text=f"Mean: {mean_value:.2f}")
+                                        
+                                        # Get timestamp ticks if needed
+                                        if x_axis == 'timestamp_seconds':
+                                            tick_vals, tick_texts = get_timestamp_ticks(filtered_df[x_axis])
+                                            fig.update_xaxes(
+                                                tickvals=tick_vals,
+                                                ticktext=tick_texts,
+                                                title_text=get_axis_title(x_axis),
+                                                type='linear'
+                                            )
+                                        else:
+                                            fig.update_xaxes(title_text=x_axis)
+                                        
+                                        fig.update_layout(
+                                            height=450,  # Reduced from 900 to fit viewport
+                                            showlegend=True,
+                                            legend=dict(
+                                                orientation="h",
+                                                yanchor="bottom",
+                                                y=1.02,  # Slightly adjusted to prevent overlap
+                                                xanchor="center",
+                                                x=0.5
+                                            ),
+                                            margin=dict(t=30, b=20, l=50, r=20),  # Optimized margins
+                                            yaxis=dict(
+                                                showticklabels=True,
+                                                title=y_axis
+                                            )
                                         )
-                                    else:
-                                        fig.update_xaxes(title_text=x_axis)
-                                    
-                                    fig.update_layout(
-                                        height=900,
-                                        showlegend=True,
-                                        legend=dict(
-                                            orientation="h",
-                                            yanchor="bottom",
-                                            y=1.05,
-                                            xanchor="center",
-                                            x=0.5
-                                        ),
-                                        margin=dict(t=100),
-                                        yaxis=dict(
-                                            showticklabels=True,
-                                            title=y_axis
-                                        )
-                                    )
-                                    st.plotly_chart(fig, use_container_width=True)
+                                        st.plotly_chart(fig, use_container_width=True)
                             except Exception as e:
                                st.error(f"Error creating plot: {str(e)}")
                     
@@ -733,8 +1110,6 @@ elif st.session_state.current_page == 'single_analysis':
                     settings_col, data_col = st.columns([0.2, 0.8])
                     
                     with settings_col:
-                        st.markdown("<h4 style='font-size: 18px;'>⚙️ Data Settings</h4>", unsafe_allow_html=True)
-                        
                         # Add dataset selector and column management
                         st.markdown("<h5 style='font-size: 16px;'>🔧 Column Management</h5>", unsafe_allow_html=True)
                         if isinstance(df, pd.DataFrame):
@@ -790,9 +1165,9 @@ elif st.session_state.current_page == 'single_analysis':
                                     use_container_width=True,
                                     height=500
                                 )
-        except Exception as e:
-            st.error(f"❌ Error loading file: {str(e)}")
-            df = None
+                # except:
+                #     st.error("Error loading file")
+                #     df = None
     else:
         st.info("Please upload a valid data file to begin analysis.")
 
@@ -807,24 +1182,6 @@ elif st.session_state.current_page == 'comparative_analysis':
             change_page('home')
             st.rerun()
     
-    # File upload section
-    st.markdown("<h4 style='font-size:18px; color:#4B8BBE;'>🔼 Upload Benchmark & Target Files</h4>", unsafe_allow_html=True)
-
-    # Simulate a topbar with two upload sections
-    top_col1, top_col2, top_col3, top_col4 = st.columns(4)
-
-    with top_col1:
-        benchmark_files = st.file_uploader("📂 Upload Benchmark File", type=["csv", "ulg"], accept_multiple_files=True)
-        benchmark_names = [f.name for f in benchmark_files] if benchmark_files else []
-        if not benchmark_files:
-            st.info(" Please upload a Benchmark file")
-    
-    with top_col2:
-        validation_files = st.file_uploader("📂 Upload Target File", type=["csv", "ulg"], accept_multiple_files=True)
-        validation_names = [f.name for f in validation_files] if validation_files else []
-        if not validation_files:
-            st.info(" Please upload a Target file")
-    
     # Initialize variables
     b_df = None
     v_df = None
@@ -832,56 +1189,112 @@ elif st.session_state.current_page == 'comparative_analysis':
     v_file_ext = None
     b_dfs = {}
     v_dfs = {}
-    selected_bench = "None"
-    selected_val = "None"
+    selected_bench = st.session_state.get('selected_bench', "None")
+    selected_val = st.session_state.get('selected_val', "None")
 
-    with top_col3:
-        if benchmark_files:
-            selected_bench = st.selectbox("Select Benchmark File", ["None"] + benchmark_names)
-            if selected_bench == "None":
-                st.info("📋 Select a Benchmark file to proceed")
-            elif selected_bench != "None":
-                b_file = benchmark_files[benchmark_names.index(selected_bench)]
-                b_file_ext = os.path.splitext(b_file.name)[-1].lower()
-                if b_file_ext == ".ulg":
-                    b_dfs, b_topics = load_ulog(b_file)
-                    if "common_topic" not in st.session_state:
-                        st.session_state.common_topic = b_topics[0] if b_topics else "None"
-                else:
-                    df, _ = load_data(b_file, b_file_ext, key_suffix="bench")
-                    if df is not None and isinstance(df, pd.DataFrame) and len(df.index) > 0:
-                        b_df = df
-                        st.session_state.b_df = df
-        else:
-            st.selectbox("Select Benchmark File", ["Please upload a file first"], disabled=True)
-    
-    with top_col4:
-        if validation_files:
-            selected_val = st.selectbox("Select Target File", ["None"] + validation_names)
-            if selected_val == "None":
-                st.info("📋 Select a Target file to proceed")
-            elif selected_val != "None":
-                v_file = validation_files[validation_names.index(selected_val)]
-                v_file_ext = os.path.splitext(v_file.name)[-1].lower()
-                if v_file_ext == ".ulg":
-                    v_dfs, v_topics = load_ulog(v_file)
-                else:
-                    df, _ = load_data(v_file, v_file_ext, key_suffix="val")
-                    if df is not None and isinstance(df, pd.DataFrame) and len(df.index) > 0:
-                        v_df = df
-                        st.session_state.v_df = df
-        else:
-            st.selectbox("Select Target File", ["Please upload a file first"], disabled=True)
+    # Process benchmark file
+    if selected_bench != "None":
+        try:
+            b_content = st.session_state.get('selected_bench_content')
+            if b_content:
+                b_file_ext = os.path.splitext(selected_bench)[-1].lower()
+                tmp_file = None
+                try:
+                    tmp_file = tempfile.NamedTemporaryFile(delete=False, suffix=b_file_ext)
+                    if isinstance(b_content, str):
+                        tmp_file.write(b_content.encode('utf-8'))
+                    else:
+                        tmp_file.write(b_content)
+                    tmp_file.flush()
+                    tmp_file.close()
+                    
+                    if b_file_ext == ".ulg":
+                        b_dfs, b_topics = load_ulog(tmp_file.name)
+                    else:
+                        df, _ = load_data(tmp_file.name, b_file_ext, key_suffix="bench")
+                        if df is not None and isinstance(df, pd.DataFrame) and len(df.index) > 0:
+                            b_df = df
+                            st.session_state.b_df = df
+                finally:
+                    if tmp_file:
+                        try:
+                            os.unlink(tmp_file.name)
+                        except:
+                            pass
+        except Exception as e:
+            st.error(f"Error processing benchmark file: {str(e)}")
+
+    # Process validation file
+    if selected_val != "None":
+        try:
+            v_content = st.session_state.get('selected_val_content')
+            if v_content:
+                v_file_ext = os.path.splitext(selected_val)[-1].lower()
+                tmp_file = None
+                try:
+                    tmp_file = tempfile.NamedTemporaryFile(delete=False, suffix=v_file_ext)
+                    if isinstance(v_content, str):
+                        tmp_file.write(v_content.encode('utf-8'))
+                    else:
+                        tmp_file.write(v_content)
+                    tmp_file.flush()
+                    tmp_file.close()
+                    
+                    if v_file_ext == ".ulg":
+                        v_dfs, v_topics = load_ulog(tmp_file.name)
+                    else:
+                        df, _ = load_data(tmp_file.name, v_file_ext, key_suffix="val")
+                        if df is not None and isinstance(df, pd.DataFrame) and len(df.index) > 0:
+                            v_df = df
+                            st.session_state.v_df = df
+                finally:
+                    if tmp_file:
+                        try:
+                            os.unlink(tmp_file.name)
+                        except:
+                            pass
+        except Exception as e:
+            st.error(f"Error processing target file: {str(e)}")
             
     # Show topic selection only after both ULG files are selected
     if (selected_bench != "None" and selected_val != "None" and 
         b_file_ext == ".ulg" and v_file_ext == ".ulg"):
-        st.markdown("<h3 style='font-size: 20px;'>📊 Select Analysis Topic</h3>", unsafe_allow_html=True)
+        
         assessment_names = ["None"] + [a for _, a in TOPIC_ASSESSMENT_PAIRS]
         assessment_to_topic = {a: t for t, a in TOPIC_ASSESSMENT_PAIRS}
-        selected_assessment = st.selectbox("Select Topic", options=assessment_names, key="common_topic")
         
-        if selected_assessment != "None":
+        # Get the topic selected from home page
+        default_assessment = st.session_state.get('selected_assessment')
+        
+        # If we have a valid topic from home page, use it directly
+        if default_assessment and default_assessment != "None":
+            selected_topic = assessment_to_topic.get(str(default_assessment))
+            if selected_topic:
+                if selected_topic in b_dfs and selected_topic in v_dfs:
+                    b_df = b_dfs[selected_topic]
+                    v_df = v_dfs[selected_topic]
+                    st.session_state.b_df = b_dfs[selected_topic]
+                    st.session_state.v_df = v_dfs[selected_topic]
+                else:
+                    st.warning(f"⚠️ Topic '{selected_topic}' not found in one or both files")
+        
+        # Show topic selection dropdown with default from home page
+        # st.markdown("<h3 style='font-size: 20px;'>📊 Analysis Topic</h3>", unsafe_allow_html=True)
+        
+        # Handle default topic selection
+        default_index = 0  # Default to "None"
+        if isinstance(default_assessment, str) and default_assessment in assessment_names:
+            default_index = assessment_names.index(default_assessment)
+            
+        selected_assessment = st.selectbox(
+            "Change Topic", 
+            options=assessment_names,
+            index=default_index,
+            key="common_topic"
+        )
+        
+        # Update data if topic is changed
+        if selected_assessment != "None" and selected_assessment != default_assessment:
             selected_topic = assessment_to_topic.get(str(selected_assessment))
             if selected_topic:
                 if selected_topic in b_dfs and selected_topic in v_dfs:
@@ -889,6 +1302,8 @@ elif st.session_state.current_page == 'comparative_analysis':
                     v_df = v_dfs[selected_topic]
                     st.session_state.b_df = b_dfs[selected_topic]
                     st.session_state.v_df = v_dfs[selected_topic]
+                    # Update session state with new topic
+                    st.session_state.selected_assessment = selected_assessment
                 else:
                     st.warning(f"⚠️ Topic '{selected_topic}' not found in one or both files")
     elif selected_bench != "None" and selected_val != "None":
@@ -908,8 +1323,6 @@ elif st.session_state.current_page == 'comparative_analysis':
             settings_col, data_col = st.columns([0.2, 0.8])
             
             with settings_col:
-                st.markdown("<h4 style='font-size: 18px;'>⚙️ Data Settings</h4>", unsafe_allow_html=True)
-                
                 # Add dataset selector and column management
                 st.markdown("<h5 style='font-size: 16px;'>🔧 Column Management</h5>", unsafe_allow_html=True)
                 dataset_choice = st.selectbox(
@@ -1011,7 +1424,7 @@ elif st.session_state.current_page == 'comparative_analysis':
             col1, col2 = st.columns([0.2, 0.8])
             
             with col1:
-                st.markdown("<h3 style='font-size: 20px;'>🎯 Comparative Analysis</h3>", unsafe_allow_html=True)
+                # st.markdown("<h3 style='font-size: 20px;'>🎯 Comparative Analysis</h3>", unsafe_allow_html=True)
                 st.markdown("<h4 style='font-size: 18px;'>📈 Parameters</h4>", unsafe_allow_html=True)
                 # Get common columns
                 b_df = st.session_state.get("b_df")
@@ -1052,32 +1465,30 @@ elif st.session_state.current_page == 'comparative_analysis':
                             default_y = y_axis_options[0] if y_axis_options else None
                     else:
                         default_y = y_axis_options[0] if y_axis_options else None
-                    x_axis = st.selectbox("X-Axis", x_axis_options, key="x_axis_select", index=x_axis_options.index(default_x))
-                    # If user selects Index for both, force y to cD2detailpeak if available
-                    if x_axis == 'Index' and 'cD2detailpeak' in y_axis_options:
-                        y_axis = st.selectbox("Y-Axis", y_axis_options, key="y_axis_select", index=y_axis_options.index('cD2detailpeak'))
-                    else:
-                        y_axis = st.selectbox("Y-Axis", y_axis_options, key="y_axis_select", index=y_axis_options.index(default_y) if default_y in y_axis_options else 0)
                     
+                    # More compact layout with columns
+                    col_axes, col_thres = st.columns(2)
+                    with col_axes:
+                        x_axis = st.selectbox("X-Axis", x_axis_options, key="x_axis_select", index=x_axis_options.index(default_x))
+                        y_axis = st.selectbox("Y-Axis", y_axis_options, key="y_axis_select", index=y_axis_options.index(default_y) if default_y in y_axis_options else 0)
+                    with col_thres:
+                        z_threshold = st.slider("Z-Score Threshold", 1.0, 5.0, 3.0, 0.1, key="z-slider-comparative")
+
                     if not x_axis or not y_axis:
                         st.info("📌 Please select valid X and Y axes to compare.")
                     else:
-                        z_threshold = st.slider("Z-Score Threshold", 1.0, 5.0, 3.0, 0.1, key="z-slider-comparative")
                         # Check if x_axis exists in DataFrame before accessing
                         if x_axis in b_df.columns:
-                            x_min = st.number_input("X min", value=float(b_df[x_axis].min()), key="x_min_param")
-                            x_max = st.number_input("X max", value=float(b_df[x_axis].max()), key="x_max_param")
+                            col_min, col_max = st.columns(2)
+                            with col_min:
+                                x_min = st.number_input("X min", value=float(b_df[x_axis].min()), key="x_min_param")
+                                y_min = st.number_input("Y min", value=float(b_df[y_axis].min()), key="y_min_param")
+                            with col_max:
+                                x_max = st.number_input("X max", value=float(b_df[x_axis].max()), key="x_max_param")
+                                y_max = st.number_input("Y max", value=float(b_df[y_axis].max()), key="y_max_param")
                         else:
                             st.error(f"Selected X-axis '{x_axis}' not found in data")
                             st.stop()
-                        
-                        if y_axis in b_df.columns:
-                            y_min = st.number_input("Y min", value=float(b_df[y_axis].min()), key="y_min_param")
-                            y_max = st.number_input("Y max", value=float(b_df[y_axis].max()), key="y_max_param")
-                        else:
-                            st.error(f"Selected Y-axis '{y_axis}' not found in data")
-                            st.stop()
-                        plot_mode = st.radio("Plot Mode", ["Superimposed", "Separate"], horizontal=True, key="comparative_plot_mode")
                 else:
                     st.info("Please upload both Benchmark and Target files to begin analysis.")
             
@@ -1192,155 +1603,140 @@ elif st.session_state.current_page == 'comparative_analysis':
                             fig3.update_layout(width=200, height=140, margin=dict(t=60, b=10))
                             st.plotly_chart(fig3)
                         
-                        st.markdown("<h3 style='font-size: 20px;'>🧮 Plot Visualization</h3>", unsafe_allow_html=True)
-                        
-                        if plot_mode == "Superimposed":
-                            fig = go.Figure()
-                            # Add main line plot
-                            fig.add_trace(go.Scatter(
-                                x=b_filtered[x_axis],
-                                y=b_filtered[y_axis],
-                                mode='lines',
-                                name='Benchmark'
-                            ))
-                            # Add validation data (Target) in green
-                            fig.add_trace(go.Scatter(
-                                x=v_filtered[x_axis],
-                                y=v_filtered[y_axis],
-                                mode='lines',
-                                name='Target',
-                                line=dict(color='green')
-                            ))
-                            # Add abnormal points
-                            if not abnormal_points.empty:
-                                fig.add_trace(
-                                    go.Scatter(
-                                        x=abnormal_points[x_axis], 
-                                        y=abnormal_points[y_axis], 
-                                        mode='markers', 
-                                        marker=dict(color='red', size=8), 
-                                        name='Abnormal Points'
+                        # Add Plot Visualization header and plot mode selection in the same line
+                        col_viz1, col_viz2 = st.columns([0.7, 0.3])
+                        with col_viz1:
+                            st.markdown("<h3 style='font-size: 20px;'>🧮 Plot Visualization</h3>", unsafe_allow_html=True)
+                        with col_viz2:
+                            plot_mode = st.radio("Plot Mode", ["Superimposed", "Separate"], horizontal=True, key="comparative_plot_mode")
+                        plot_container = st.container()
+                        with plot_container:
+                            try:
+                                if plot_mode == "Superimposed":
+                                    fig = go.Figure()
+                                    # Add main line plot
+                                    fig.add_trace(go.Scatter(
+                                        x=b_filtered[x_axis],
+                                        y=b_filtered[y_axis],
+                                        mode='lines',
+                                        name='Benchmark'
+                                    ))
+                                    # Add validation data (Target) in green
+                                    fig.add_trace(go.Scatter(
+                                        x=v_filtered[x_axis],
+                                        y=v_filtered[y_axis],
+                                        mode='lines',
+                                        name='Target',
+                                        line=dict(color='green')
+                                    ))
+                                    # Add abnormal points
+                                    if not abnormal_points.empty:
+                                        fig.add_trace(
+                                            go.Scatter(
+                                                x=abnormal_points[x_axis], 
+                                                y=abnormal_points[y_axis], 
+                                                mode='markers', 
+                                                marker=dict(color='red', size=8), 
+                                                name='Abnormal Points'
+                                            )
+                                        )
+                                    
+                                    # Get timestamp ticks if needed
+                                    if x_axis == 'timestamp_seconds':
+                                        tick_vals, tick_texts = get_timestamp_ticks(b_filtered[x_axis])
+                                        fig.update_xaxes(
+                                            tickvals=tick_vals,
+                                            ticktext=tick_texts,
+                                            title_text=get_axis_title(x_axis),
+                                            type='linear'
+                                        )
+                                    else:
+                                        fig.update_xaxes(title_text=x_axis)
+                                        
+                                    fig.update_layout(
+                                        height=450,  # Reduced height to fit viewport better
+                                        showlegend=True,
+                                        legend=dict(
+                                            orientation="h",
+                                            yanchor="bottom",
+                                            y=1.02,
+                                            xanchor="center",
+                                            x=0.5
+                                        ),
+                                        margin=dict(t=30, b=20, l=50, r=20)  # Optimized margins
                                     )
-                                )
-                            
-                            # Get timestamp ticks if needed
-                            if x_axis == 'timestamp_seconds':
-                                tick_vals, tick_texts = get_timestamp_ticks(b_filtered[x_axis])
-                            else:
-                                tick_vals, tick_texts = None, None
-                                
-                            fig.update_layout(
-                                height=900,
-                                showlegend=True,
-                                legend=dict(
-                                    orientation="h",
-                                    yanchor="bottom",
-                                    y=1.05,
-                                    xanchor="center",
-                                    x=0.5
-                                ),
-                                margin=dict(t=100),
-                                xaxis=dict(
-                                    showticklabels=True,
-                                    title=get_axis_title(x_axis),
-                                    tickvals=tick_vals,
-                                    ticktext=tick_texts,
-                                    type='linear'
-                                ),
-                                yaxis=dict(
-                                    showticklabels=True,
-                                    title=y_axis
-                                )
-                            )
-                            # Robustly set x-axis ticks/labels for timestamp_seconds
-                            if x_axis == 'timestamp_seconds' and tick_vals is not None and tick_texts is not None:
-                                fig.update_xaxes(
-                                    tickvals=tick_vals,
-                                    ticktext=tick_texts,
-                                    title_text=get_axis_title(x_axis),
-                                    type='linear'
-                                )
-                            st.plotly_chart(fig, use_container_width=True)
-                        else:  # Separate plots
-                            fig = make_subplots(rows=2, cols=1, shared_xaxes=True, 
-                                              subplot_titles=("Benchmark", "Target"),
-                                              vertical_spacing=0.2)
-                            
-                            fig.add_trace(go.Scatter(
-                                x=b_filtered[x_axis],
-                                y=b_filtered[y_axis],
-                                mode='lines',
-                                name='Benchmark',
-                                line=dict(color='blue')
-                            ), row=1, col=1)
-                            
-                            fig.add_trace(go.Scatter(
-                                x=v_filtered[x_axis],
-                                y=v_filtered[y_axis],
-                                mode='lines',
-                                name='Target',
-                                line=dict(color='green')
-                            ), row=2, col=1)
-                            
-                            # Add abnormal points
-                            if len(b_filtered) > 0:
-                                # Calculate difference and z-score for abnormality detection
-                                val_col = f"{y_axis}_validation"
-                                bench_col = f"{y_axis}_benchmark"
-                                merged = pd.DataFrame()
-                                merged[bench_col] = b_filtered[y_axis]
-                                merged[val_col] = v_filtered[y_axis]
-                                merged["Difference"] = merged[val_col] - merged[bench_col]
-                                merged["Z_Score"] = (merged["Difference"] - merged["Difference"].mean()) / merged["Difference"].std()
-                                abnormal_mask = abs(merged["Z_Score"]) > z_threshold
-                                abnormal_points = v_filtered[abnormal_mask]
-                                if not abnormal_points.empty:
-                                    fig.add_trace(
-                                        go.Scatter(
-                                            x=abnormal_points[x_axis],
-                                            y=abnormal_points[y_axis],
-                                            mode='markers',
-                                            marker=dict(color='red', size=8),
-                                            name='Abnormal Points'
-                                        ), row=2, col=1
+                                    st.plotly_chart(fig, use_container_width=True)
+                                else:  # Separate plots
+                                    fig = make_subplots(rows=2, cols=1, shared_xaxes=True, 
+                                                      subplot_titles=("Benchmark", "Target"),
+                                                      vertical_spacing=0.1)  # Reduced spacing
+                                    
+                                    fig.add_trace(go.Scatter(
+                                        x=b_filtered[x_axis],
+                                        y=b_filtered[y_axis],
+                                        mode='lines',
+                                        name='Benchmark',
+                                        line=dict(color='blue')
+                                    ), row=1, col=1)
+                                    
+                                    fig.add_trace(go.Scatter(
+                                        x=v_filtered[x_axis],
+                                        y=v_filtered[y_axis],
+                                        mode='lines',
+                                        name='Target',
+                                        line=dict(color='green')
+                                    ), row=2, col=1)
+                                    
+                                    # Add abnormal points
+                                    if not abnormal_points.empty:
+                                        fig.add_trace(
+                                            go.Scatter(
+                                                x=abnormal_points[x_axis],
+                                                y=abnormal_points[y_axis],
+                                                mode='markers',
+                                                marker=dict(color='red', size=8),
+                                                name='Abnormal Points'
+                                            ), row=2, col=1
+                                        )
+                                    
+                                    # Get timestamp ticks if needed
+                                    if x_axis == 'timestamp_seconds':
+                                        tick_vals, tick_texts = get_timestamp_ticks(b_filtered[x_axis])
+                                        fig.update_xaxes(
+                                            tickvals=tick_vals,
+                                            ticktext=tick_texts,
+                                            title_text=get_axis_title(x_axis),
+                                            type='linear',
+                                            row=1, col=1
+                                        )
+                                        fig.update_xaxes(
+                                            tickvals=tick_vals,
+                                            ticktext=tick_texts,
+                                            title_text=get_axis_title(x_axis),
+                                            type='linear',
+                                            row=2, col=1
+                                        )
+                                    else:
+                                        fig.update_xaxes(title_text=x_axis, row=1, col=1)
+                                        fig.update_xaxes(title_text=x_axis, row=2, col=1)
+                                    
+                                    fig.update_layout(
+                                        height=450,  # Reduced height to fit viewport better
+                                        showlegend=True,
+                                        legend=dict(
+                                            orientation="h",
+                                            yanchor="bottom",
+                                            y=1.02,
+                                            xanchor="center",
+                                            x=0.5
+                                        ),
+                                        margin=dict(t=30, b=20, l=50, r=20)  # Optimized margins
                                     )
-                            
-                            # Get timestamp ticks if needed
-                            if x_axis == 'timestamp_seconds':
-                                tick_vals, tick_texts = get_timestamp_ticks(b_filtered[x_axis])
-                                fig.update_xaxes(
-                                    tickvals=tick_vals,
-                                    ticktext=tick_texts,
-                                    title_text=get_axis_title(x_axis),
-                                    type='linear',
-                                    row=1, col=1
-                                )
-                                fig.update_xaxes(
-                                    tickvals=tick_vals,
-                                    ticktext=tick_texts,
-                                    title_text=get_axis_title(x_axis),
-                                    type='linear',
-                                    row=2, col=1
-                                )
-                            else:
-                                fig.update_xaxes(title_text=x_axis, row=1, col=1)
-                                fig.update_xaxes(title_text=x_axis, row=2, col=1)
-                            
-                            fig.update_layout(
-                                height=900,
-                                showlegend=True,
-                                legend=dict(
-                                    orientation="h",
-                                    yanchor="bottom",
-                                    y=1.05,
-                                    xanchor="center",
-                                    x=0.5
-                                ),
-                                margin=dict(t=100)
-                            )
-                            fig.update_yaxes(title_text=y_axis, row=1, col=1)
-                            fig.update_yaxes(title_text=y_axis, row=2, col=1)
-                            st.plotly_chart(fig, use_container_width=True)
+                                    fig.update_yaxes(title_text=y_axis, row=1, col=1)
+                                    fig.update_yaxes(title_text=y_axis, row=2, col=1)
+                                    st.plotly_chart(fig, use_container_width=True)
+                            except Exception as e:
+                                st.error(f"Error during plotting: {str(e)}")
                     except Exception as e:
                         st.error(f"Error during plotting: {str(e)}")
     else:
