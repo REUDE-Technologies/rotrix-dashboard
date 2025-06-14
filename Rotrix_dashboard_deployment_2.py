@@ -1028,9 +1028,9 @@ if st.session_state.current_page == 'home':
                 
                         with tab2:
                             # Create a 20-80 split layout
-                            settings_col, data_col = st.columns([0.2, 0.8])
+                            data_col, settings_col = st.columns([0.8, 0.2])
                             with settings_col:
-                                st.markdown("<h3 style='font-size: 20px;'>📋 Data Preview</h3>", unsafe_allow_html=True)
+                                # st.markdown("<h3 style='font-size: 20px;'>📋 Data Preview</h3>", unsafe_allow_html=True)
                                 st.markdown("<h5 style='font-size: 14px; margin-bottom: 5px;'>🔧 Column Management</h5>", unsafe_allow_html=True)
                                 if isinstance(df, pd.DataFrame):
                                     df = add_remove_column(df, "Dataset")
@@ -1211,11 +1211,11 @@ if st.session_state.current_page == 'home':
         # Data Tab
         with tab2:
             # Create a 20-80 split layout
-            settings_col, data_col = st.columns([0.2, 0.8])
+            data_col, settings_col = st.columns([0.8, 0.2])
             
             with settings_col:
                 # Add dataset selector and column management
-                st.markdown("<h3 style='font-size: 20px;'>📋 Data Preview</h3>", unsafe_allow_html=True)
+                # st.markdown("<h3 style='font-size: 20px;'>📋 Data Preview</h3>", unsafe_allow_html=True)
                 st.markdown("<h5 style='font-size: 16px;'>🔧 Column Management</h5>", unsafe_allow_html=True)
                 dataset_choice = st.selectbox(
                     "Select Dataset to Edit",
