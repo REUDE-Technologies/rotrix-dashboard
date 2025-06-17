@@ -1586,14 +1586,14 @@ if st.session_state.current_page == 'home':
                                 if plot_mode == "Superimposed":
                                     fig = go.Figure()
                                     fig.add_trace(go.Scatter(
-                                        x=b_df[x_axis],
-                                        y=b_df[y_axis],
+                                        x=b_filtered[x_axis],
+                                        y=b_filtered[y_axis],
                                         mode='lines',
                                         name='Benchmark'
                                     ))
                                     fig.add_trace(go.Scatter(
-                                        x=v_df[x_axis],
-                                        y=v_df[y_axis],
+                                        x=v_filtered[x_axis],
+                                        y=v_filtered[y_axis],
                                         mode='lines',
                                         name='Target',
                                         line=dict(color='green')
@@ -1609,7 +1609,7 @@ if st.session_state.current_page == 'home':
                                             )
                                         )
                                     if x_axis == 'timestamp_seconds':
-                                        tick_vals, tick_texts = get_timestamp_ticks(b_df[x_axis])
+                                        tick_vals, tick_texts = get_timestamp_ticks(b_filtered[x_axis])
                                         fig.update_xaxes(
                                             tickvals=tick_vals,
                                             ticktext=tick_texts,
@@ -1720,10 +1720,7 @@ if st.session_state.current_page == 'home':
         else:
             pass  # Removed warning message
 
-if (
-    st.session_state.get('analysis_type') == 'Comparative Analysis' and 
-    len(st.session_state.uploaded_files) == 1
-):
+if (st.session_state.get('analysis_type') == 'Comparative Analysis' and len(st.session_state.uploaded_files) == 1):
     st.markdown("<div style='margin-top:2em; text-align:center;'>", unsafe_allow_html=True)
     if st.button('Upload More Files', key='upload_more_files_btn', use_container_width=True):
         st.session_state.show_upload_area = True
