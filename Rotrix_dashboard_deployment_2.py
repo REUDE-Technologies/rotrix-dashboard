@@ -1586,14 +1586,14 @@ if st.session_state.current_page == 'home':
                                 if plot_mode == "Superimposed":
                                     fig = go.Figure()
                                     fig.add_trace(go.Scatter(
-                                        x=b_filtered[x_axis],
-                                        y=b_filtered[y_axis],
+                                        x=b_df[x_axis],
+                                        y=b_df[y_axis],
                                         mode='lines',
                                         name='Benchmark'
                                     ))
                                     fig.add_trace(go.Scatter(
-                                        x=v_filtered[x_axis],
-                                        y=v_filtered[y_axis],
+                                        x=v_df[x_axis],
+                                        y=v_df[y_axis],
                                         mode='lines',
                                         name='Target',
                                         line=dict(color='green')
@@ -1609,7 +1609,7 @@ if st.session_state.current_page == 'home':
                                             )
                                         )
                                     if x_axis == 'timestamp_seconds':
-                                        tick_vals, tick_texts = get_timestamp_ticks(b_filtered[x_axis])
+                                        tick_vals, tick_texts = get_timestamp_ticks(b_df[x_axis])
                                         fig.update_xaxes(
                                             tickvals=tick_vals,
                                             ticktext=tick_texts,
