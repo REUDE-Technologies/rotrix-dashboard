@@ -79,6 +79,26 @@ def detect_abnormalities(series, threshold=3.0):
     z_scores = np.abs((series - series.mean()) / series.std())
     return z_scores > threshold, z_scores
 
+def mmss_to_seconds(mmss_str):
+    """Convert MM:SS format string to seconds."""
+    try:
+        if ':' in mmss_str:
+            minutes, seconds = mmss_str.split(':')
+            return int(minutes) * 60 + int(seconds)
+        else:
+            return float(mmss_str)
+    except:
+        return 0.0
+
+def seconds_to_mmss(seconds):
+    """Convert seconds to MM:SS format string."""
+    try:
+        minutes = int(seconds // 60)
+        remaining_seconds = int(seconds % 60)
+        return f"{minutes:02d}:{remaining_seconds:02d}"
+    except:
+        return "00:00"
+
 # Initialize session state variables if they don't exist
 if 'current_page' not in st.session_state:
     st.session_state.current_page = 'home'
@@ -109,6 +129,22 @@ if 'benchmark_file_selection' not in st.session_state:
     st.session_state.benchmark_file_selection = "None"
 if 'target_file_selection' not in st.session_state:
     st.session_state.target_file_selection = "None"
+# Add variables to track mode switching
+if 'mode_switched' not in st.session_state:
+    st.session_state.mode_switched = False
+if 'switch_timestamp' not in st.session_state:
+    st.session_state.switch_timestamp = None
+# Add variables to remember last selections for each mode
+if 'last_single_file' not in st.session_state:
+    st.session_state.last_single_file = None
+if 'last_single_topic' not in st.session_state:
+    st.session_state.last_single_topic = None
+if 'last_benchmark_file' not in st.session_state:
+    st.session_state.last_benchmark_file = None
+if 'last_target_file' not in st.session_state:
+    st.session_state.last_target_file = None
+if 'last_comparative_topic' not in st.session_state:
+    st.session_state.last_comparative_topic = None
 
 # Initialize global variables
 b_df = None
@@ -635,6 +671,14 @@ if st.session_state.current_page == 'home':
 
         # Reset variables when switching analysis type
         if 'previous_analysis_type' in st.session_state and st.session_state.previous_analysis_type != analysis_type:
+            # Remember last selections before clearing
+            if st.session_state.previous_analysis_type == "Single File Analysis":
+                st.session_state.last_single_file = st.session_state.get('selected_single_file', None)
+                st.session_state.last_single_topic = st.session_state.get('selected_assessment', None)
+            elif st.session_state.previous_analysis_type == "Comparative Analysis":
+                st.session_state.last_benchmark_file = st.session_state.get('selected_bench', None)
+                st.session_state.last_target_file = st.session_state.get('selected_val', None)
+                st.session_state.last_comparative_topic = st.session_state.get('selected_assessment', None)
             if analysis_type == "Single File Analysis":
                 # Clear comparative analysis variables
                 st.session_state.pop('selected_bench', None)
@@ -643,10 +687,33 @@ if st.session_state.current_page == 'home':
                 st.session_state.pop('selected_val_content', None)
                 st.session_state.pop('b_df', None)
                 st.session_state.pop('v_df', None)
+                # Reset file selections for comparative analysis
+                st.session_state.benchmark_file_selection = "None"
+                st.session_state.target_file_selection = "None"
+                # Restore last single file selection if available
+                if st.session_state.last_single_file:
+                    st.session_state.single_file_selection = st.session_state.last_single_file
+                    st.session_state.selected_single_file = st.session_state.last_single_file
+                if st.session_state.last_single_topic:
+                    st.session_state.selected_assessment = st.session_state.last_single_topic
             elif analysis_type == "Comparative Analysis":
                 # Clear single file analysis variables
                 st.session_state.pop('selected_single_file', None)
                 st.session_state.pop('selected_single_file_content', None)
+                # Reset file selection for single analysis
+                st.session_state.single_file_selection = "None"
+                # Restore last comparative selection if available, else use single file as default benchmark
+                if st.session_state.last_benchmark_file:
+                    st.session_state.benchmark_file_selection = st.session_state.last_benchmark_file
+                    st.session_state.selected_bench = st.session_state.last_benchmark_file
+                elif st.session_state.last_single_file:
+                    st.session_state.benchmark_file_selection = st.session_state.last_single_file
+                    st.session_state.selected_bench = st.session_state.last_single_file
+                if st.session_state.last_target_file:
+                    st.session_state.target_file_selection = st.session_state.last_target_file
+                    st.session_state.selected_val = st.session_state.last_target_file
+                if st.session_state.last_comparative_topic:
+                    st.session_state.selected_assessment = st.session_state.last_comparative_topic
         st.session_state.previous_analysis_type = analysis_type
 
         if analysis_type == "Single File Analysis":
@@ -654,6 +721,10 @@ if st.session_state.current_page == 'home':
             col1, col2 = st.columns([1, 1])
             with col1:
                 file_options = ["None"] + [f.name for f in st.session_state.uploaded_files]
+                # Fallback: if remembered file is not in uploaded files, reset to None
+                if st.session_state.single_file_selection not in file_options:
+                    st.session_state.single_file_selection = "None"
+                    st.session_state.selected_single_file = None
                 selected_file = st.selectbox(
                     "Select File", 
                     file_options,
@@ -662,6 +733,9 @@ if st.session_state.current_page == 'home':
                 )
                 st.session_state.single_file_selection = selected_file if selected_file != "None" else "None"
                 st.session_state.selected_single_file = selected_file if selected_file != "None" else None
+                # Update last single file selection
+                if selected_file != "None":
+                    st.session_state.last_single_file = selected_file
                 if selected_file != "None" and st.session_state.uploaded_files:
                     try:
                         file = [f for f in st.session_state.uploaded_files if f.name == selected_file][0]
@@ -670,6 +744,10 @@ if st.session_state.current_page == 'home':
                         file.seek(0)
                     except Exception as e:
                         st.error("Error loading file")
+                # Fallback: if no file is selected, show info and stop
+                if selected_file == "None":
+                    st.info("📋 Please select a file to begin Single File Analysis")
+                    st.stop()
             with col2:
                 if selected_file != "None" and isinstance(selected_file, str):
                     file_ext = os.path.splitext(selected_file)[-1].lower()
@@ -688,10 +766,12 @@ if st.session_state.current_page == 'home':
                             options=assessment_names,
                             index=default_index
                         )
-                        
                         # Update session state with new topic selection
                         if selected_assessment != st.session_state.get('selected_assessment'):
                             st.session_state.selected_assessment = selected_assessment
+                        # Update last single topic selection
+                        if selected_assessment != "None":
+                            st.session_state.last_single_topic = selected_assessment
         else:
             # Comparative Analysis
             col1, col2, col3 = st.columns([1, 1, 1])
@@ -720,6 +800,8 @@ if st.session_state.current_page == 'home':
                         st.session_state.selected_bench_content = file.read()
                         file.seek(0)
                         st.session_state.selected_bench = benchmark_file
+                        # Update last benchmark file selection
+                        st.session_state.last_benchmark_file = benchmark_file
                     except Exception as e:
                         st.error("Error loading benchmark file")
 
@@ -760,6 +842,8 @@ if st.session_state.current_page == 'home':
                         st.session_state.selected_val_content = file.read()
                         file.seek(0)
                         st.session_state.selected_val = target_file
+                        # Update last target file selection
+                        st.session_state.last_target_file = target_file
                     except Exception as e:
                         st.error("Error loading target file")
 
@@ -783,9 +867,17 @@ if st.session_state.current_page == 'home':
                     )
                     if selected_assessment != st.session_state.get('selected_assessment'):
                         st.session_state.selected_assessment = selected_assessment
-        
+                    # Update last comparative topic selection
+                    if selected_assessment != "None":
+                        st.session_state.last_comparative_topic = selected_assessment
+
         # Show analysis output directly based on selection
         if analysis_type == "Single File Analysis":
+            # Add safety check for mode switching
+            if st.session_state.mode_switched:
+                st.session_state.mode_switched = False
+                st.session_state.switch_timestamp = None
+            
             if st.session_state.get('selected_single_file'):
                 # Single File Analysis content
                 
@@ -893,24 +985,37 @@ if st.session_state.current_page == 'home':
 
                                     x_axis = st.selectbox("X-Axis", ALLOWED_X_AXIS, key="x_axis_single", index=ALLOWED_X_AXIS.index(default_x))
                                     y_axis = st.selectbox("Y-Axis", allowed_y_axis, key="y_axis_single", index=allowed_y_axis.index(default_y) if default_y in allowed_y_axis else 0)
-
-                                    z_row = st.columns([0.7, 0.3])
-                                    with z_row[0]:
-                                        z_threshold = st.slider("Z-Score Threshold", 1.0, 5.0, 3.0, 0.01, key="z-slider-single")
-                                    with z_row[1]:
-                                        st.markdown(f"<div style='color: #e74c3c; font-weight: 600; text-align:right;'>{z_threshold:.2f}</div>", unsafe_allow_html=True)
+                                    z_threshold = st.slider("Z-Score Threshold", 1.0, 5.0, 3.0, 0.01, key="z-slider-single")
+                                    st.markdown(f"<span style='font-size:1.05rem; color:#444; font-weight:500;'>{'Time' if x_axis == 'timestamp_seconds' else x_axis}</span>", unsafe_allow_html=True)
 
                                     x_min_col, x_max_col = st.columns(2)
                                     with x_min_col:
-                                        x_min = st.number_input("X min", value=float(df[x_axis].min()) if x_axis else 0.0, format="%.2f", key="x_min_single", step=1.0)
+                                        if x_axis == 'timestamp_seconds':
+                                            # Convert seconds to MM:SS format for display
+                                            x_min_seconds = float(df[x_axis].min()) if x_axis in df.columns else 0.0
+                                            x_min_mmss = seconds_to_mmss(x_min_seconds)
+                                            x_min_input = st.text_input("Start", value=x_min_mmss, key="x_min_single_mmss")
+                                            # Convert back to seconds for processing
+                                            x_min = mmss_to_seconds(x_min_input)
+                                        else:
+                                            x_min = st.number_input("Start", value=float(df[x_axis].min()) if x_axis else 0.0, format="%.2f", key="x_min_single", step=1.0)
                                     with x_max_col:
-                                        x_max = st.number_input("X max", value=float(df[x_axis].max()) if x_axis else 1.0, format="%.2f", key="x_max_single", step=1.0)
+                                        if x_axis == 'timestamp_seconds':
+                                            # Convert seconds to MM:SS format for display
+                                            x_max_seconds = float(df[x_axis].max()) if x_axis in df.columns else 1.0
+                                            x_max_mmss = seconds_to_mmss(x_max_seconds)
+                                            x_max_input = st.text_input("End", value=x_max_mmss, key="x_max_single_mmss")
+                                            # Convert back to seconds for processing
+                                            x_max = mmss_to_seconds(x_max_input)
+                                        else:
+                                            x_max = st.number_input("End", value=float(df[x_axis].max()) if x_axis else 1.0, format="%.2f", key="x_max_single", step=1.0)
 
+                                    st.markdown(f"<span style='font-size:1.05rem; color:#444; font-weight:500;'>{y_axis}</span>", unsafe_allow_html=True)
                                     y_min_col, y_max_col = st.columns(2)
                                     with y_min_col:
-                                        y_min = st.number_input("Y min", value=float(df[y_axis].min()) if y_axis else 0.0, format="%.2f", key="y_min_single", step=1.0)
+                                        y_min = st.number_input("Start", value=float(df[y_axis].min()) if y_axis else 0.0, format="%.2f", key="y_min_single", step=1.0)
                                     with y_max_col:
-                                        y_max = st.number_input("Y max", value=float(df[y_axis].max()) if y_axis else 1.0, format="%.2f", key="y_max_single", step=1.0)
+                                        y_max = st.number_input("Stop", value=float(df[y_axis].max()) if y_axis else 1.0, format="%.2f", key="y_max_single", step=1.0)
                             with main_col:
                                 # --- Metrics Row ---
                                 filtered_df = df[(df[x_axis] >= x_min) & (df[x_axis] <= x_max) & (df[y_axis] >= y_min) & (df[y_axis] <= y_max)]
@@ -1056,6 +1161,7 @@ if st.session_state.current_page == 'home':
                                         st.dataframe(df[display_cols], use_container_width=True, height=600)
                                     else:
                                         st.warning("⚠️ Dataset is empty or not loaded.")
+                                        st.info("📋 Please upload a valid data file to begin analysis")
                                 elif isinstance(df, pd.DataFrame) and len(df.index) > 0:
                                     display_cols = []
                                     if 'Index' in df.columns:
@@ -1076,6 +1182,16 @@ if st.session_state.current_page == 'home':
                                     st.info("📋 Please upload a valid data file to begin analysis")
 
         else:  # Comparative Analysis
+            # Add safety check for mode switching
+            if st.session_state.mode_switched:
+                st.session_state.mode_switched = False
+                st.session_state.switch_timestamp = None
+            
+            # Show guidance message if no files are selected
+            if not st.session_state.get('selected_bench') or not st.session_state.get('selected_val'):
+                st.info("📋 Please select both Benchmark and Target files to begin Comparative Analysis")
+                st.stop()
+            
             if st.session_state.get('selected_bench') and st.session_state.get('selected_val'):
                 # Initialize variables
                 b_df = None
@@ -1461,23 +1577,36 @@ if st.session_state.current_page == 'home':
                 x_axis = st.selectbox("X-Axis", x_axis_options, key="x_axis_comparative", index=x_axis_options.index(str(default_x)) if isinstance(default_x, str) and default_x in x_axis_options else 0)
                 y_axis = st.selectbox("Y-Axis", y_axis_options, key="y_axis_comparative", index=y_axis_options.index(str(default_y)) if isinstance(default_y, str) and default_y in y_axis_options else 0)
 
-                z_row = st.columns([0.7, 0.3])
-                with z_row[0]:
-                    z_threshold = st.slider("Z-Score Threshold", 1.0, 5.0, 3.0, 0.01, key="z-slider-comparative")
-                with z_row[1]:
-                    st.markdown(f"<div style='color: #e74c3c; font-weight: 600; text-align:right;'>{z_threshold:.2f}</div>", unsafe_allow_html=True)
-
+                z_threshold = st.slider("Z-Score Threshold", 1.0, 5.0, 3.0, 0.01, key="z-slider-comparative")
+                st.markdown(f"<span style='font-size:1.05rem; color:#444; font-weight:500;'>{'Time' if x_axis == 'timestamp_seconds' else x_axis}</span>", unsafe_allow_html=True)
                 x_min_col, x_max_col = st.columns(2)
                 with x_min_col:
-                    x_min = st.number_input("X min", value=float(b_df[x_axis].min()) if b_df is not None and x_axis in b_df.columns else 0.0, format="%.2f", key="x_min_comparative", step=1.0)
+                    if x_axis == 'timestamp_seconds':
+                        # Convert seconds to MM:SS format for display
+                        x_min_seconds = float(b_df[x_axis].min()) if b_df is not None and x_axis in b_df.columns else 0.0
+                        x_min_mmss = seconds_to_mmss(x_min_seconds)
+                        x_min_input = st.text_input("Start", value=x_min_mmss, key="x_min_comparative_mmss")
+                        # Convert back to seconds for processing
+                        x_min = mmss_to_seconds(x_min_input)
+                    else:
+                        x_min = st.number_input("Start", value=float(b_df[x_axis].min()) if b_df is not None and x_axis in b_df.columns else 0.0, format="%.2f", key="x_min_comparative", step=1.0)
                 with x_max_col:
-                    x_max = st.number_input("X max", value=float(b_df[x_axis].max()) if b_df is not None and x_axis in b_df.columns else 1.0, format="%.2f", key="x_max_comparative", step=1.0)
+                    if x_axis == 'timestamp_seconds':
+                        # Convert seconds to MM:SS format for display
+                        x_max_seconds = float(b_df[x_axis].max()) if b_df is not None and x_axis in b_df.columns else 1.0
+                        x_max_mmss = seconds_to_mmss(x_max_seconds)
+                        x_max_input = st.text_input("End", value=x_max_mmss, key="x_max_comparative_mmss")
+                        # Convert back to seconds for processing
+                        x_max = mmss_to_seconds(x_max_input)
+                    else:
+                        x_max = st.number_input("End", value=float(b_df[x_axis].max()) if b_df is not None and x_axis in b_df.columns else 1.0, format="%.2f", key="x_max_comparative", step=1.0)
 
+                st.markdown(f"<span style='font-size:1.05rem; color:#444; font-weight:500;'>{y_axis}</span>", unsafe_allow_html=True)
                 y_min_col, y_max_col = st.columns(2)
                 with y_min_col:
-                    y_min = st.number_input("Y min", value=float(b_df[y_axis].min()) if b_df is not None and y_axis in b_df.columns else 0.0, format="%.2f", key="y_min_comparative", step=1.0)
+                    y_min = st.number_input("Start", value=float(b_df[y_axis].min()) if b_df is not None and y_axis in b_df.columns else 0.0, format="%.2f", key="y_min_comparative", step=1.0)
                 with y_max_col:
-                    y_max = st.number_input("Y max", value=float(b_df[y_axis].max()) if b_df is not None and y_axis in b_df.columns else 1.0, format="%.2f", key="y_max_comparative", step=1.0)
+                    y_max = st.number_input("Stop", value=float(b_df[y_axis].max()) if b_df is not None and y_axis in b_df.columns else 1.0, format="%.2f", key="y_max_comparative", step=1.0)
             with metrics_col:
                 metrics_cols = st.columns(3)
                 with metrics_cols[0]:
