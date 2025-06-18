@@ -742,7 +742,7 @@ if st.session_state.current_page == 'home':
                     if 'selected_assessment' in st.session_state:
                         temp_topic = st.session_state.get('selected_assessment')
                         st.session_state['selected_assessment'] = st.session_state.get('selected_assessment')
-                    st.experimental_rerun()
+                    st.rerun()
 
             with col2:
                 file_options = ["None"] + [f.name for f in st.session_state.uploaded_files if f.name != st.session_state.benchmark_file_selection]
