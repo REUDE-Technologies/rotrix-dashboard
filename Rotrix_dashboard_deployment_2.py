@@ -644,11 +644,6 @@ if st.session_state.current_page == 'home':
             """, unsafe_allow_html=True)
             st.button("🚀", key="rotrix_icon", help="Select files from ROTRIX Account")
             st.button("📁", key="shared_icon", help="Select files from My Shared Files")
-    elif st.session_state.files_submitted:
-        # Show a button to reveal the upload area again
-        if st.button("Manage Files", type="secondary"):
-            st.session_state.show_upload_area = True
-            st.rerun()
     # --- End centered layout ---
 
     # Analysis Type Selection - only show after files are submitted
