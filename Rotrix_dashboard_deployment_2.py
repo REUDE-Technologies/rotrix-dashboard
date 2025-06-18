@@ -654,7 +654,7 @@ if st.session_state.current_page == 'home':
     # Analysis Type Selection - only show after files are submitted
     if st.session_state.files_submitted:
         # Analysis type selection with plus button in the same row
-        col1, col2, col3 = st.columns([6, 2, 0.5])
+        col1, col2, col3, col4 = st.columns([6, 2, 1, 0.5])
         with col1:
             analysis_type = st.radio(
                 "Choose the type of analysis you want to perform",
@@ -662,11 +662,16 @@ if st.session_state.current_page == 'home':
                 index=0,
                 horizontal=True
             )
-        with col3:
+        with col4:
             if st.button("➕", key="show_upload_area_btn", help="Add more files"):
                 st.session_state.show_upload_area = True
                 st.session_state.upload_opened_by_plus = True
                 st.rerun()
+        with col3:
+            if st.session_state.files_submitted and not st.session_state.show_upload_area:
+                if st.button("Manage Files", type="secondary", use_container_width=True):
+                    st.session_state.show_upload_area = True
+                    st.rerun()
         st.session_state.analysis_type = analysis_type
 
         # Reset variables when switching analysis type
