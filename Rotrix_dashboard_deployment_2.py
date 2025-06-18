@@ -642,7 +642,7 @@ if st.session_state.current_page == 'home':
             }
             </style>
             """, unsafe_allow_html=True)
-            st.button("👤", key="rotrix_icon", help="Select files from ROTRIX Account")
+            st.button("🚀", key="rotrix_icon", help="Select files from ROTRIX Account")
             st.button("📁", key="shared_icon", help="Select files from My Shared Files")
     elif st.session_state.files_submitted:
         # Show a button to reveal the upload area again
