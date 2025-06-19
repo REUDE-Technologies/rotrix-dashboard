@@ -16,7 +16,6 @@ import tempfile
 import os
 from pyulog import ULog
 
-
 st.set_page_config(page_title="ROTRIX Dashboard", layout="wide")
 
 # Helper functions for data handling
@@ -145,6 +144,17 @@ if 'last_target_file' not in st.session_state:
     st.session_state.last_target_file = None
 if 'last_comparative_topic' not in st.session_state:
     st.session_state.last_comparative_topic = None
+# Add new session state variables for the new file upload interface
+if 'upload_source' not in st.session_state:
+    st.session_state.upload_source = "desktop"  # desktop, rotrix, shared
+if 'show_file_preview' not in st.session_state:
+    st.session_state.show_file_preview = False
+if 'file_rename_mode' not in st.session_state:
+    st.session_state.file_rename_mode = {}
+if 'file_share_mode' not in st.session_state:
+    st.session_state.file_share_mode = {}
+if "share_all_mode" not in st.session_state:
+    st.session_state.share_all_mode = False
 
 # Initialize global variables
 b_df = None
@@ -558,15 +568,176 @@ if st.session_state.current_page == 'home':
     if 'files_submitted' not in st.session_state:
         st.session_state.files_submitted = False
     
-    # --- Centered layout: left spacer, upload, icons, right spacer ---
+    # --- New 3-Section File Upload Layout ---
     show_upload = st.session_state.show_upload_area or not st.session_state.files_submitted
     if show_upload:
-        col_left, col_upload, col_icons, col_right = st.columns([4, 3, 1, 3])
-        with col_upload:
-            st.markdown("<h4 style='font-size:18px; color:#4B8BBE; text-align:center;'>🔼 Upload Files</h4>", unsafe_allow_html=True)
-            uploaded_files = st.file_uploader("Upload your data files", type=["csv", "ulg"], key="uploader", label_visibility="collapsed", accept_multiple_files=True)
-            if not st.session_state.uploaded_files:
-                st.info("📂 Please upload your data files to begin analysis")
+        # Add custom CSS for the new upload interface
+        st.markdown("""
+        <style>
+        .upload-section {
+            background: #f8f9fa;
+            border-radius: 12px;
+            padding: 20px;
+            margin: 10px 0;
+            border: 2px solid #e9ecef;
+            transition: all 0.3s ease;
+        }
+        .upload-section.active {
+            border-color: #007bff;
+            background: #f0f8ff;
+            box-shadow: 0 4px 12px rgba(0, 123, 255, 0.15);
+        }
+        .upload-section:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 6px 20px rgba(0,0,0,0.1);
+        }
+        .upload-section h4 {
+            color: #495057;
+            margin-bottom: 15px;
+            font-size: 16px;
+            font-weight: 600;
+        }
+        .file-preview-card {
+            background: white;
+            border: 1px solid #dee2e6;
+            border-radius: 8px;
+            padding: 12px;
+            margin: 8px 0;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+            transition: all 0.2s ease;
+        }
+        .file-preview-card:hover {
+            box-shadow: 0 4px 8px rgba(0,0,0,0.1);
+            border-color: #007bff;
+            transform: translateY(-1px);
+        }
+        .file-actions {
+            display: flex;
+            gap: 8px;
+            margin-top: 8px;
+        }
+        .file-action-btn {
+            background: #f8f9fa;
+            border: 1px solid #dee2e6;
+            border-radius: 4px;
+            padding: 4px 8px;
+            font-size: 12px;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+        .file-action-btn:hover {
+            background: #e9ecef;
+            border-color: #adb5bd;
+        }
+        .file-action-btn.primary {
+            background: #007bff;
+            color: white;
+            border-color: #007bff;
+        }
+        .file-action-btn.primary:hover {
+            background: #0056b3;
+        }
+        .file-action-btn.danger {
+            background: #dc3545;
+            color: white;
+            border-color: #dc3545;
+        }
+        .file-action-btn.danger:hover {
+            background: #c82333;
+        }
+        .upload-zone {
+            border: 2px dashed #dee2e6;
+            border-radius: 8px;
+            padding: 30px;
+            text-align: center;
+            background: white;
+            transition: all 0.2s;
+            cursor: pointer;
+        }
+        .upload-zone:hover {
+            border-color: #007bff;
+            background: #f8f9ff;
+            transform: scale(1.02);
+        }
+        .upload-zone.dragover {
+            border-color: #007bff;
+            background: #e3f2fd;
+        }
+        .file-stats {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 15px;
+            border-radius: 8px;
+            margin: 10px 0;
+        }
+        .file-stats h6 {
+            color: rgba(255,255,255,0.9);
+            margin-bottom: 8px;
+        }
+        .file-stats .stat-value {
+            font-size: 24px;
+            font-weight: bold;
+            margin-bottom: 5px;
+        }
+        .file-stats .stat-label {
+            font-size: 12px;
+            opacity: 0.8;
+        }
+        .bulk-actions {
+            background: #f8f9fa;
+            border: 1px solid #dee2e6;
+            border-radius: 8px;
+            padding: 15px;
+            margin: 10px 0;
+        }
+        .bulk-actions h6 {
+            color: #495057;
+            margin-bottom: 10px;
+        }
+        .tab-content {
+            animation: fadeIn 0.3s ease-in;
+        }
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(10px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+        .file-type-badge {
+            display: inline-block;
+            padding: 2px 8px;
+            border-radius: 12px;
+            font-size: 10px;
+            font-weight: 600;
+            text-transform: uppercase;
+        }
+        .file-type-badge.csv {
+            background: #d4edda;
+            color: #155724;
+        }
+        .file-type-badge.ulg {
+            background: #d1ecf1;
+            color: #0c5460;
+        }
+        </style>
+        """, unsafe_allow_html=True)
+
+        # Main upload container
+        st.markdown("<h3 style='text-align: center; color: #2E86C1; margin-bottom: 30px;'>📁 File Upload & Management</h3>", unsafe_allow_html=True)
+        
+        # File source selection tabs
+        tab1, tab2, tab3 = st.tabs(["💻 My Desktop", "🚀 ROTRIX Account", "📁 Shared Files"])
+        
+        with tab1:            
+            # File uploader
+            uploaded_files = st.file_uploader(
+                "Choose files to upload", 
+                type=["csv", "ulg"], 
+                key="desktop_uploader", 
+                label_visibility="collapsed", 
+                accept_multiple_files=True,
+                help="Drag and drop files here or click to browse"
+            )
+            
+            # Process uploaded files
             if uploaded_files:
                 new_files_added = False
                 existing_names = [f.name for f in st.session_state.uploaded_files]
@@ -576,75 +747,301 @@ if st.session_state.current_page == 'home':
                         new_files_added = True
                 if new_files_added:
                     st.rerun()
-            # Display uploaded files
-            for i, file in enumerate(st.session_state.uploaded_files):
-                col_name, col_remove = st.columns([11, 1])
-                with col_name:
-                    st.markdown(f"📎 {file.name}")
-                with col_remove:
-                    if st.button("🗑️", key=f"remove_{i}", help="Remove file"):
-                        st.session_state.uploaded_files.pop(i)
-                        st.rerun()
-            # Submit button - show if files are uploaded (regardless of how upload area was opened)
+            
+            # Show file preview section if files are uploaded
             if st.session_state.uploaded_files:
-                if st.button("Submit Files", type="primary", use_container_width=True):
-                    st.session_state.files_submitted = True
-                    st.session_state.show_upload_area = False
-                    st.session_state.upload_opened_by_plus = False
-                    st.rerun()
-            # Show a 'Back' button when the upload area was opened via the plus button AND no files are present
-            elif st.session_state.upload_opened_by_plus and not st.session_state.uploaded_files:
+                st.markdown("<h4 style='margin-top: 30px; color: #495057;'>📋 File Preview & Management</h4>", unsafe_allow_html=True)
+                
+                # Two-column layout for file preview
+                preview_col, actions_col = st.columns([0.7, 0.3])
+                
+                with preview_col:
+                    st.markdown("<h5 style='color: #6c757d; margin-bottom: 15px;'>📎 Uploaded Files</h5>", unsafe_allow_html=True)
+                    
+                    for i, file in enumerate(st.session_state.uploaded_files):
+                        file_ext = file.name.split('.')[-1].lower() if '.' in file.name else 'unknown'
+                        file_type_badge = f"<span class='file-type-badge {file_ext}'>{file_ext}</span>"
+                        
+                        # Use columns to align file name/details and action buttons in a single row
+                        file_cols = st.columns([4, 1, 1, 1, 1])  # Adjust width as needed
+                        with file_cols[0]:
+                            st.markdown(f"""
+                            <div style="font-weight: 600; color: #495057;">
+                                📄 {file.name}
+                                <span style="font-size: 12px; color: #6c757d; margin-left: 10px;">
+                                    Size: {file.size / 1024:.1f} KB | Type: {file.type or 'Unknown'} {file_type_badge}
+                                </span><br/>
+                                <span style="font-size: 11px; color: #adb5bd;">
+                                    Uploaded: {file.name} • {file.size} bytes
+                                </span>
+                            </div>
+                            """, unsafe_allow_html=True)
+                        with file_cols[1]:
+                            if st.button("✏️", key=f"rename_btn_{i}", use_container_width=True, help="Rename"):
+                                st.session_state.file_rename_mode[i] = True
+                                st.rerun()
+                        with file_cols[2]:
+                            if st.button("📤", key=f"share_btn_{i}", use_container_width=True, help="Share"):
+                                st.session_state.file_share_mode[i] = True
+                                st.rerun()
+                        with file_cols[3]:
+                            file.seek(0)
+                            st.download_button(
+                                label="⬇️",
+                                data=file.read(),
+                                file_name=file.name,
+                                mime=file.type or "application/octet-stream",
+                                key=f"download_btn_{i}",
+                                use_container_width=True,
+                                help="Download"
+                            )
+                            file.seek(0)
+                        with file_cols[4]:
+                            if st.button("🗑️", key=f"remove_btn_{i}", use_container_width=True, help="Remove"):
+                                st.session_state.uploaded_files.pop(i)
+                                st.rerun()
+                        # Handle rename and share modes as before, below this row
+                        if st.session_state.file_rename_mode.get(i, False):
+                            with st.container():
+                                # st.markdown("---")
+                                st.markdown("**✏️ Rename File**")
+                                col_rename1, col_rename2, col_rename3 = st.columns([2, 1, 1])
+                                with col_rename1:
+                                    new_name = st.text_input(
+                                        "New file name:", 
+                                        value=file.name,
+                                        key=f"rename_input_{i}"
+                                    )
+                                with col_rename2:
+                                    if st.button("✅ Save", key=f"save_rename_{i}", use_container_width=True):
+                                        if new_name and new_name != file.name:
+                                            file.name = new_name
+                                            st.success(f"File renamed to: {new_name}")
+                                        st.session_state.file_rename_mode[i] = False
+                                        st.rerun()
+                                with col_rename3:
+                                    if st.button("❌ Cancel", key=f"cancel_rename_{i}", use_container_width=True):
+                                        st.session_state.file_rename_mode[i] = False
+                                        st.rerun()
+                        if st.session_state.file_share_mode.get(i, False):
+                            with st.container():
+                                # st.markdown("---")
+                                st.markdown("**📤 Share File**")
+                                share_options = st.multiselect(
+                                    "Select sharing options:",
+                                    ["Public Link", "ROTRIX Team", "Email"],
+                                    key=f"share_options_{i}"
+                                )
+                                col_share1, col_share2 = st.columns([1, 1])
+                                with col_share1:
+                                    if st.button("✅ Share", key=f"confirm_share_{i}", use_container_width=True):
+                                        if share_options:
+                                            st.success(f"File '{file.name}' shared via: {', '.join(share_options)}")
+                                        st.session_state.file_share_mode[i] = False
+                                        st.rerun()
+                                with col_share2:
+                                    if st.button("❌ Cancel", key=f"cancel_share_{i}", use_container_width=True):
+                                        st.session_state.file_share_mode[i] = False
+                                        st.rerun()
+                        # st.markdown("---")
+                
+                with actions_col:
+                    # Move the uploader here
+                    # uploaded_files = st.file_uploader(
+                    #     "Choose files to upload", 
+                    #     type=["csv", "ulg"], 
+                    #     key="desktop_uploader", 
+                    #     label_visibility="collapsed", 
+                    #     accept_multiple_files=True,
+                    #     help="Drag and drop files here or click to browse"
+                    # )
+                    # # File statistics with enhanced styling
+                    # total_files = len(st.session_state.uploaded_files)
+                    # total_size = sum(f.size for f in st.session_state.uploaded_files) / 1024  # KB
+                    
+                    # st.markdown(f"""
+                    # <div class="file-stats">
+                    #     <h6>📊 File Statistics</h6>
+                    #     <div class="stat-value">{total_files}</div>
+                    #     <div class="stat-label">Total Files</div>
+                    # </div>
+                    # """, unsafe_allow_html=True)
+                    
+                    # st.markdown(f"""
+                    # <div class="file-stats">
+                    #     <h6>💾 Storage</h6>
+                    #     <div class="stat-value">{total_size:.1f}</div>
+                    #     <div class="stat-label">Total Size (KB)</div>
+                    # </div>
+                    # """, unsafe_allow_html=True)
+                    
+                    # st.markdown("---")
+                    
+                    # Bulk actions with enhanced styling
+                    # st.markdown("""
+                    # <div class="bulk-actions">
+                    #     <h6>🔄 Bulk Actions</h6>
+                    # </div>
+                    # """, unsafe_allow_html=True)
+                    
+                    if st.button("📤 Share All", use_container_width=True):
+                        st.session_state.share_all_mode = True
+                    
+                    if st.session_state.get("share_all_mode", False):
+                        st.markdown("**Share All Files**")
+                        share_all_options = st.multiselect(
+                            "Select sharing options for all files:",
+                            ["Public Link", "ROTRIX Team", "Email"],
+                            key="share_all_options"
+                        )
+                        col_share_all1, col_share_all2 = st.columns([1, 1])
+                        with col_share_all1:
+                            if st.button("✅ Confirm Share All", key="confirm_share_all", use_container_width=True):
+                                if share_all_options:
+                                    file_names = [f.name for f in st.session_state.uploaded_files]
+                                    st.success(f"All files ({', '.join(file_names)}) shared via: {', '.join(share_all_options)}")
+                                else:
+                                    st.warning("Please select at least one sharing option.")
+                                st.session_state.share_all_mode = False
+                        with col_share_all2:
+                            if st.button("❌ Cancel", key="cancel_share_all", use_container_width=True):
+                                st.session_state.share_all_mode = False
+                    
+                    if st.button("🗑️ Clear All", use_container_width=True):
+                        st.session_state.uploaded_files.clear()
+                        st.rerun()
+                    
+                    # st.markdown("---")
+                    
+                    # Submit files button with enhanced styling
+                    if st.button("✅ Submit Files for Analysis", type="primary", use_container_width=True):
+                        st.session_state.files_submitted = True
+                        st.session_state.show_upload_area = False
+                        st.session_state.upload_opened_by_plus = False
+                        st.rerun()
+            
+            else:
+                # Empty state
                 st.markdown("""
-                <style>
-                .stButton>button#close_upload_area_btn {
-                    background-color: #ff5252;
-                    color: white;
-                    width: 100%;
-                    border-radius: 10px;
-                    font-size: 1.1rem;
-                    height: 48px;
-                    margin-top: 8px;
-                }
-                </style>
+                <div class="upload-zone">
+                    <div style="font-size: 48px; margin-bottom: 20px;">📁</div>
+                    <h4 style="color: #6c757d; margin-bottom: 10px;">No files uploaded yet</h4>
+                    <p style="color: #adb5bd; margin-bottom: 20px;">Upload your CSV or ULG files to begin analysis</p>
+                    <p style="font-size: 12px; color: #ced4da;">Supported formats: .csv, .ulg</p>
+                </div>
                 """, unsafe_allow_html=True)
-                if st.button("Back", key="close_upload_area_btn"):
-                    st.session_state.show_upload_area = False
-                    st.session_state.upload_opened_by_plus = False
-                    st.rerun()
-        with col_icons:
+        
+        with tab2:
+            # Show Rotrix logo at the top of the section instead of the emoji
+            logo_base64 = get_base64_image("Rotrix-Logo.png")
+            st.markdown(f'''
+            <div class="upload-zone">
+                <img src="data:image/png;base64,{logo_base64}" width="215" style="margin-bottom: 20px;" />
+                <h4 style="color: #6c757d; margin-bottom: 10px;">ROTRIX Account Integration</h4>
+                <p style="color: #adb5bd; margin-bottom: 20px;">Connect to your ROTRIX account to access your files</p>
+                <div style="display: flex; gap: 10px; justify-content: center;">
+                    <button style="background: #007bff; color: white; border: none; padding: 10px 20px; border-radius: 6px; cursor: pointer; transition: all 0.2s;" onmouseover="this.style.background='#0056b3'" onmouseout="this.style.background='#007bff'">
+                        🔗 Connect ROTRIX Account
+                    </button>
+                    <button style="background: #6c757d; color: white; border: none; padding: 10px 20px; border-radius: 6px; cursor: pointer; transition: all 0.2s;" onmouseover="this.style.background='#545b62'" onmouseout="this.style.background='#6c757d'">
+                        📋 View Account Info
+                    </button>
+                </div>
+            </div>
+            ''', unsafe_allow_html=True)
+            
+            # Mock ROTRIX files (for demonstration)
+            st.markdown("<h5 style='margin-top: 30px; color: #6c757d;'>📁 Recent ROTRIX Files</h5>", unsafe_allow_html=True)
+            
+            # Create mock ROTRIX files for demonstration
+            mock_rotrix_files = [
+                {"name": "flight_data_001.ulg", "size": 2048, "date": "2024-01-15", "type": "ulg"},
+                {"name": "battery_analysis.csv", "size": 512, "date": "2024-01-14", "type": "csv"},
+                {"name": "performance_test.ulg", "size": 4096, "date": "2024-01-13", "type": "ulg"}
+            ]
+            
+            for file_info in mock_rotrix_files:
+                file_ext = file_info["type"]
+                file_type_badge = f"<span class='file-type-badge {file_ext}'>{file_ext}</span>"
+                
+                st.markdown(f"""
+                <div class="file-preview-card" style="opacity: 0.7;">
+                    <div style="display: flex; align-items: center; justify-content: space-between;">
+                        <div style="flex: 1;">
+                            <div style="font-weight: 600; color: #495057; margin-bottom: 4px;">
+                                📄 {file_info["name"]}
+                            </div>
+                            <div style="font-size: 12px; color: #6c757d; margin-bottom: 8px;">
+                                Size: {file_info["size"]} KB | Date: {file_info["date"]} {file_type_badge}
+                            </div>
+                            <div style="font-size: 11px; color: #adb5bd;">
+                                🔒 ROTRIX Account • Requires authentication
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                """, unsafe_allow_html=True)
+            
+            st.info("🔒 This feature requires ROTRIX account authentication")
+        
+        with tab3:
+            # Placeholder for shared files
             st.markdown("""
-            <style>
-            div[data-testid=\"column\"]:nth-of-type(3) button {
-                border-radius: 50% !important;
-                width: 44px !important;
-                height: 44px !important;
-                font-size: 1.3em !important;
-                margin-bottom: 8px !important;
-                margin-top: 0 !important;
-                background: #f4f4f4;
-                border: none;
-                box-shadow: 0 2px 8px rgba(44,62,80,0.07);
-                transition: background 0.2s, box-shadow 0.2s, transform 0.1s;
-                display: flex;
-                align-items: center;
-                justify-content: center;
-            }
-            div[data-testid=\"column\"]:nth-of-type(3) button:hover {
-                background: #e0e7ef;
-                box-shadow: 0 4px 16px rgba(44,62,80,0.13);
-                transform: translateY(-2px) scale(1.04);
-            }
-            div[data-testid=\"column\"]:nth-of-type(3) button:last-child {
-                margin-bottom: 0 !important;
-            }
-            div[data-testid=\"column\"]:nth-of-type(3) button:first-child {
-                margin-top: 8px !important;
-            }
-            </style>
+            <div class="upload-zone">
+                <div style="font-size: 48px; margin-bottom: 20px;">📁</div>
+                <h4 style="color: #6c757d; margin-bottom: 10px;">Shared Files</h4>
+                <p style="color: #adb5bd; margin-bottom: 20px;">Access files shared with you by your team</p>
+                <div style="display: flex; gap: 10px; justify-content: center;">
+                    <button style="background: #28a745; color: white; border: none; padding: 10px 20px; border-radius: 6px; cursor: pointer; transition: all 0.2s;" onmouseover="this.style.background='#218838'" onmouseout="this.style.background='#28a745'">
+                        🔍 Browse Shared Files
+                    </button>
+                    <button style="background: #17a2b8; color: white; border: none; padding: 10px 20px; border-radius: 6px; cursor: pointer; transition: all 0.2s;" onmouseover="this.style.background='#138496'" onmouseout="this.style.background='#17a2b8'">
+                        👥 Manage Permissions
+                    </button>
+                </div>
+            </div>
             """, unsafe_allow_html=True)
-            st.button("🚀", key="rotrix_icon", help="Select files from ROTRIX Account")
-            st.button("📁", key="shared_icon", help="Select files from My Shared Files")
-    # --- End centered layout ---
+            
+            # Mock shared files (for demonstration)
+            st.markdown("<h5 style='margin-top: 30px; color: #6c757d;'>📁 Recently Shared</h5>", unsafe_allow_html=True)
+            
+            # Create mock shared files for demonstration
+            mock_shared_files = [
+                {"name": "team_analysis.ulg", "size": 1536, "shared_by": "John Doe", "date": "2024-01-15", "type": "ulg"},
+                {"name": "comparison_data.csv", "size": 768, "shared_by": "Jane Smith", "date": "2024-01-14", "type": "csv"},
+                {"name": "test_results.ulg", "size": 3072, "shared_by": "Mike Johnson", "date": "2024-01-13", "type": "ulg"}
+            ]
+            
+            for file_info in mock_shared_files:
+                file_ext = file_info["type"]
+                file_type_badge = f"<span class='file-type-badge {file_ext}'>{file_ext}</span>"
+                
+                st.markdown(f"""
+                <div class="file-preview-card" style="opacity: 0.7;">
+                    <div style="display: flex; align-items: center; justify-content: space-between;">
+                        <div style="flex: 1;">
+                            <div style="font-weight: 600; color: #495057; margin-bottom: 4px;">
+                                📄 {file_info["name"]}
+                            </div>
+                            <div style="font-size: 12px; color: #6c757d; margin-bottom: 8px;">
+                                Size: {file_info["size"]} KB | Shared by: {file_info["shared_by"]} {file_type_badge}
+                            </div>
+                            <div style="font-size: 11px; color: #adb5bd;">
+                                📅 Shared on {file_info["date"]} • Requires permissions
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                """, unsafe_allow_html=True)
+            
+            st.info("🔒 This feature requires proper permissions and authentication")
+    
+    elif st.session_state.files_submitted:
+        # Show a button to reveal the upload area again
+        if st.button("Manage Files", type="secondary"):
+            st.session_state.show_upload_area = True
+            st.rerun()
+    # --- End new upload layout ---
 
     # Analysis Type Selection - only show after files are submitted
     if st.session_state.files_submitted:
@@ -766,10 +1163,9 @@ if st.session_state.current_page == 'home':
                             options=assessment_names,
                             index=default_index
                         )
-                        # Update session state with new topic selection
                         if selected_assessment != st.session_state.get('selected_assessment'):
                             st.session_state.selected_assessment = selected_assessment
-                        # Update last single topic selection
+                            st.rerun()  # <-- Force rerun on topic change
                         if selected_assessment != "None":
                             st.session_state.last_single_topic = selected_assessment
         else:
@@ -867,6 +1263,7 @@ if st.session_state.current_page == 'home':
                     )
                     if selected_assessment != st.session_state.get('selected_assessment'):
                         st.session_state.selected_assessment = selected_assessment
+                        st.rerun()  # <-- Force rerun on topic change
                     # Update last comparative topic selection
                     if selected_assessment != "None":
                         st.session_state.last_comparative_topic = selected_assessment
