@@ -81,8 +81,8 @@ if url:
     except Exception as e:
         st.error(f"Error loading file: {e}")
 
-st.markdown("### 🧪 Benchmark Data")
-st.dataframe(df)
+# st.markdown("### 🧪 Benchmark Data")
+# st.dataframe(df)
 
 # Simulate a topbar with two upload sections
 top_col1, top_col3, top_col4 = st.columns(3)
