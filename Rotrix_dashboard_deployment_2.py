@@ -1036,11 +1036,11 @@ if st.session_state.current_page == 'home':
             
             st.info("🔒 This feature requires proper permissions and authentication")
     
-    elif st.session_state.files_submitted:
-        # Show a button to reveal the upload area again
-        if st.button("Manage Files", type="secondary"):
-            st.session_state.show_upload_area = True
-            st.rerun()
+    # elif st.session_state.files_submitted:
+    #     # Show a button to reveal the upload area again
+    #     if st.button("Manage Files", type="secondary"):
+    #         st.session_state.show_upload_area = True
+    #         st.rerun()
     # --- End new upload layout ---
 
     # Analysis Type Selection - only show after files are submitted
