@@ -1412,7 +1412,7 @@ if st.session_state.current_page == 'home':
                                     with y_min_col:
                                         y_min = st.number_input("Start", value=float(df[y_axis].min()) if y_axis else 0.0, format="%.2f", key="y_min_single", step=1.0)
                                     with y_max_col:
-                                        y_max = st.number_input("Stop", value=float(df[y_axis].max()) if y_axis else 1.0, format="%.2f", key="y_max_single", step=1.0)
+                                        y_max = st.number_input("End", value=float(df[y_axis].max()) if y_axis else 1.0, format="%.2f", key="y_max_single", step=1.0)
                             with main_col:
                                 # --- Metrics Row ---
                                 filtered_df = df[(df[x_axis] >= x_min) & (df[x_axis] <= x_max) & (df[y_axis] >= y_min) & (df[y_axis] <= y_max)]
@@ -2003,7 +2003,7 @@ if st.session_state.current_page == 'home':
                 with y_min_col:
                     y_min = st.number_input("Start", value=float(b_df[y_axis].min()) if b_df is not None and y_axis in b_df.columns else 0.0, format="%.2f", key="y_min_comparative", step=1.0)
                 with y_max_col:
-                    y_max = st.number_input("Stop", value=float(b_df[y_axis].max()) if b_df is not None and y_axis in b_df.columns else 1.0, format="%.2f", key="y_max_comparative", step=1.0)
+                    y_max = st.number_input("End", value=float(b_df[y_axis].max()) if b_df is not None and y_axis in b_df.columns else 1.0, format="%.2f", key="y_max_comparative", step=1.0)
             with metrics_col:
                 metrics_cols = st.columns(3)
                 with metrics_cols[0]:
