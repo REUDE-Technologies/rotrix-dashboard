@@ -278,37 +278,39 @@ def format_seconds_to_mmss(seconds):
         return "00:00"
 
 def resample_to_common_time(df1, df2, freq=1.0):
-    """Resample two dataframes to a common time base."""
+    """Resample two dataframes to a common time base that spans the union of their ranges."""
     if 'timestamp_seconds' not in df1.columns or 'timestamp_seconds' not in df2.columns:
         st.error("timestamp_seconds column missing in one or both dataframes")
-        return df1, df2, []
-        
+        return df1.copy(), df2.copy(), []
+
     try:
-        df1 = df1.copy().sort_values('timestamp_seconds')
-        df2 = df2.copy().sort_values('timestamp_seconds')
+        df1_c = df1.copy().set_index('timestamp_seconds').sort_index()
+        df2_c = df2.copy().set_index('timestamp_seconds').sort_index()
+
+        if df1_c.empty and df2_c.empty:
+            return df1.copy(), df2.copy(), []
         
-        start = max(df1['timestamp_seconds'].min(), df2['timestamp_seconds'].min())
-        end = min(df1['timestamp_seconds'].max(), df2['timestamp_seconds'].max())
-        
-        if start >= end:
-            st.error("No overlapping time range for resampling")
+        start = min(df1_c.index.min() if not df1_c.empty else np.inf, 
+                    df2_c.index.min() if not df2_c.empty else np.inf)
+        end = max(df1_c.index.max() if not df1_c.empty else -np.inf, 
+                  df2_c.index.max() if not df2_c.empty else -np.inf)
+
+        if start >= end or start == np.inf or end == -np.inf:
             return df1, df2, []
             
-        common_time = np.arange(start, end, freq)
-        if len(common_time) == 0:
-            st.error("No common time points found after resampling")
+        common_time_index = pd.Index(np.arange(start, end, freq), name='timestamp_seconds')
+        
+        if len(common_time_index) == 0:
             return df1, df2, []
+
+        df1_resampled = df1_c.reindex(df1_c.index.union(common_time_index)).interpolate(method='index').reindex(common_time_index)
+        df2_resampled = df2_c.reindex(df2_c.index.union(common_time_index)).interpolate(method='index').reindex(common_time_index)
         
-        df1_interp = df1.set_index('timestamp_seconds').interpolate(method='linear').reindex(common_time, method='nearest')
-        df2_interp = df2.set_index('timestamp_seconds').interpolate(method='linear').reindex(common_time, method='nearest')
-        
-        df1_interp = df1_interp.reset_index().rename(columns={'index': 'timestamp_seconds'})
-        df2_interp = df2_interp.reset_index().rename(columns={'index': 'timestamp_seconds'})
-        
-        return df1_interp, df2_interp, common_time
+        return df1_resampled.reset_index(), df2_resampled.reset_index(), common_time_index.to_numpy()
+
     except Exception as e:
         st.error(f"Error during resampling: {str(e)}")
-        return df1, df2, []
+        return df1.copy(), df2.copy(), []
 
 def load_data(file, filetype, key_suffix):
     """Load data from file and ensure proper timestamp handling."""
@@ -1343,6 +1345,23 @@ if st.session_state.current_page == 'home':
                 
                 # Only proceed with analysis if df is properly loaded
                 if df is not None and isinstance(df, pd.DataFrame) and len(df.index) > 0:
+                    
+                    def reset_x_single_callback(dataframe, axis):
+                        if dataframe is not None and axis in dataframe.columns:
+                            if axis == 'timestamp_seconds':
+                                st.session_state.x_min_single_mmss = seconds_to_mmss(float(dataframe[axis].min()))
+                                st.session_state.x_max_single_mmss = seconds_to_mmss(float(dataframe[axis].max()))
+                            else:
+                                st.session_state.x_min_single = float(dataframe[axis].min())
+                                st.session_state.x_max_single = float(dataframe[axis].max())
+                            if 'x_min_single_mmss' in st.session_state and axis != 'timestamp_seconds': del st.session_state['x_min_single_mmss']
+                            if 'x_max_single_mmss' in st.session_state and axis != 'timestamp_seconds': del st.session_state['x_max_single_mmss']
+
+                    def reset_y_single_callback(dataframe, axis):
+                        if dataframe is not None and axis in dataframe.columns:
+                            st.session_state.y_min_single = float(dataframe[axis].min())
+                            st.session_state.y_max_single = float(dataframe[axis].max())
+
                     tab1, tab2 = st.tabs(["📊 Plot", "📋 Data"])
                     
                     if df is not None and isinstance(df, pd.DataFrame) and len(df.index) > 0:
@@ -1388,7 +1407,7 @@ if st.session_state.current_page == 'home':
                                     z_threshold = st.slider("Z-Score Threshold", 1.0, 5.0, 3.0, 0.01, key="z-slider-single")
                                     st.markdown(f"<span style='font-size:1.05rem; color:#444; font-weight:500;'>{'Time' if x_axis == 'timestamp_seconds' else x_axis}</span>", unsafe_allow_html=True)
 
-                                    x_min_col, x_max_col = st.columns(2)
+                                    x_min_col, x_max_col, x_reset_col = st.columns([5, 5, 2])
                                     with x_min_col:
                                         if x_axis == 'timestamp_seconds':
                                             # Convert seconds to MM:SS format for display
@@ -1409,13 +1428,19 @@ if st.session_state.current_page == 'home':
                                             x_max = mmss_to_seconds(x_max_input)
                                         else:
                                             x_max = st.number_input("End", value=float(df[x_axis].max()) if x_axis else 1.0, format="%.2f", key="x_max_single", step=1.0)
+                                    with x_reset_col:
+                                        st.markdown('<div style="margin-top: 28px;"></div>', unsafe_allow_html=True)
+                                        st.button("↺", key="reset_x_single", help="Reset X-axis range", on_click=reset_x_single_callback, args=(df, x_axis))
 
                                     st.markdown(f"<span style='font-size:1.05rem; color:#444; font-weight:500;'>{y_axis}</span>", unsafe_allow_html=True)
-                                    y_min_col, y_max_col = st.columns(2)
+                                    y_min_col, y_max_col, y_reset_col = st.columns([5, 5, 2])
                                     with y_min_col:
                                         y_min = st.number_input("Start", value=float(df[y_axis].min()) if y_axis else 0.0, format="%.2f", key="y_min_single", step=1.0)
                                     with y_max_col:
                                         y_max = st.number_input("End", value=float(df[y_axis].max()) if y_axis else 1.0, format="%.2f", key="y_max_single", step=1.0)
+                                    with y_reset_col:
+                                        st.markdown('<div style="margin-top: 28px;"></div>', unsafe_allow_html=True)
+                                        st.button("↺", key="reset_y_single", help="Reset Y-axis range", on_click=reset_y_single_callback, args=(df, y_axis))
                             with main_col:
                                 # --- Metrics Row ---
                                 filtered_df = df[(df[x_axis] >= x_min) & (df[x_axis] <= x_max) & (df[y_axis] >= y_min) & (df[y_axis] <= y_max)]
@@ -1722,6 +1747,23 @@ if st.session_state.current_page == 'home':
 
     # Show analysis tabs only if both files are loaded and selected
     if st.session_state.get('selected_bench') and st.session_state.get('selected_val'):
+        
+        def reset_x_comparative_callback(dataframe, axis):
+            if dataframe is not None and axis in dataframe.columns:
+                if axis == 'timestamp_seconds':
+                    st.session_state.x_min_comparative_mmss = seconds_to_mmss(float(dataframe[axis].min()))
+                    st.session_state.x_max_comparative_mmss = seconds_to_mmss(float(dataframe[axis].max()))
+                else:
+                    st.session_state.x_min_comparative = float(dataframe[axis].min())
+                    st.session_state.x_max_comparative = float(dataframe[axis].max())
+                if 'x_min_comparative_mmss' in st.session_state and axis != 'timestamp_seconds': del st.session_state['x_min_comparative_mmss']
+                if 'x_max_comparative_mmss' in st.session_state and axis != 'timestamp_seconds': del st.session_state['x_max_comparative_mmss']
+
+        def reset_y_comparative_callback(dataframe, axis):
+            if dataframe is not None and axis in dataframe.columns:
+                st.session_state.y_min_comparative = float(dataframe[axis].min())
+                st.session_state.y_max_comparative = float(dataframe[axis].max())
+
         tab1, tab2 = st.tabs(["📊 Plot", "📋 Data"])
         
         # Data Tab
@@ -1906,6 +1948,7 @@ if st.session_state.current_page == 'home':
             v_df = st.session_state.get("v_df")
             metrics_ready = False
             x_axis = y_axis = z_threshold = x_min = x_max = y_min = y_max = None
+            
             if isinstance(b_df, pd.DataFrame) and isinstance(v_df, pd.DataFrame):
                 b_numeric = get_numeric_columns(b_df)
                 v_numeric = get_numeric_columns(v_df)
@@ -1934,37 +1977,6 @@ if st.session_state.current_page == 'home':
                         default_y = y_axis_options[0] if y_axis_options else None
                 else:
                     default_y = y_axis_options[0] if y_axis_options else None
-                # Set up parameter defaults for metrics calculation
-                x_axis = default_x
-                y_axis = default_y
-                z_threshold = 3.0
-                x_min = x_max = y_min = y_max = None
-                if b_df is not None and x_axis is not None and y_axis is not None and x_axis in b_df.columns and y_axis in b_df.columns:
-                    x_min = float(b_df[x_axis].min())
-                    x_max = float(b_df[x_axis].max())
-                    y_min = float(b_df[y_axis].min())
-                    y_max = float(b_df[y_axis].max())
-                    metrics_ready = True
-                else:
-                    metrics_ready = False
-            if metrics_ready and None not in (x_min, x_max, y_min, y_max) and b_df is not None and v_df is not None and x_axis in b_df.columns and y_axis in b_df.columns and x_axis in v_df.columns and y_axis in v_df.columns:
-                # Compute metrics using full data range and defaults
-                b_filtered = b_df[(b_df[x_axis] >= x_min) & (b_df[x_axis] <= x_max) & (b_df[y_axis] >= y_min) & (b_df[y_axis] <= y_max)]
-                v_filtered = v_df[(v_df[x_axis] >= x_min) & (v_df[x_axis] <= x_max) & (v_df[y_axis] >= y_min) & (v_df[y_axis] <= y_max)]
-                if x_axis == 'timestamp_seconds':
-                    b_filtered, v_filtered, _ = resample_to_common_time(b_filtered, v_filtered)
-                merged = pd.DataFrame()
-                merged['benchmark'] = b_filtered[y_axis]
-                merged['target'] = v_filtered[y_axis]
-                rmse = np.sqrt(np.mean((merged['target'] - merged['benchmark']) ** 2))
-                bench_range = merged['benchmark'].max() - merged['benchmark'].min()
-                similarity = 1 - (rmse / bench_range) if bench_range != 0 else (1.0 if rmse == 0 else 0.0)
-                similarity_index = similarity * 100
-                merged["Difference"] = merged['target'] - merged['benchmark']
-                merged["Z_Score"] = (merged["Difference"] - merged["Difference"].mean()) / merged["Difference"].std()
-                abnormal_mask = abs(merged["Z_Score"]) > z_threshold
-                abnormal_count = int(abnormal_mask.sum())
-                # --- Metrics Row ---
             metrics_col, param_col = st.columns([0.8, 0.2])
             with param_col:
                 st.markdown("""
@@ -1978,36 +1990,108 @@ if st.session_state.current_page == 'home':
                 y_axis = st.selectbox("Y-Axis", y_axis_options, key="y_axis_comparative", index=y_axis_options.index(str(default_y)) if isinstance(default_y, str) and default_y in y_axis_options else 0)
 
                 z_threshold = st.slider("Z-Score Threshold", 1.0, 5.0, 3.0, 0.01, key="z-slider-comparative")
+                
+                # --- Combined Range Calculation ---
+                x_min_val, x_max_val, y_min_val, y_max_val = (0.0, 1.0, 0.0, 1.0)
+                if x_axis and y_axis:
+                    # Calculate combined X-axis range
+                    if b_df is not None and v_df is not None and x_axis in b_df.columns and x_axis in v_df.columns:
+                        x_min_val, x_max_val = (min(b_df[x_axis].min(), v_df[x_axis].min()), max(b_df[x_axis].max(), v_df[x_axis].max()))
+                    elif b_df is not None and x_axis in b_df.columns:
+                        x_min_val, x_max_val = (b_df[x_axis].min(), b_df[x_axis].max())
+                    elif v_df is not None and x_axis in v_df.columns:
+                        x_min_val, x_max_val = (v_df[x_axis].min(), v_df[x_axis].max())
+
+                    # Calculate combined Y-axis range
+                    if b_df is not None and v_df is not None and y_axis in b_df.columns and y_axis in v_df.columns:
+                        y_min_val, y_max_val = (min(b_df[y_axis].min(), v_df[y_axis].min()), max(b_df[y_axis].max(), v_df[y_axis].max()))
+                    elif b_df is not None and y_axis in b_df.columns:
+                        y_min_val, y_max_val = (b_df[y_axis].min(), b_df[y_axis].max())
+                    elif v_df is not None and y_axis in v_df.columns:
+                        y_min_val, y_max_val = (v_df[y_axis].min(), v_df[y_axis].max())
+
                 st.markdown(f"<span style='font-size:1.05rem; color:#444; font-weight:500;'>{'Time' if x_axis == 'timestamp_seconds' else x_axis}</span>", unsafe_allow_html=True)
-                x_min_col, x_max_col = st.columns(2)
+                x_min_col, x_max_col, x_reset_col = st.columns([5, 5, 2])
                 with x_min_col:
                     if x_axis == 'timestamp_seconds':
-                        # Convert seconds to MM:SS format for display
-                        x_min_seconds = float(b_df[x_axis].min()) if b_df is not None and x_axis in b_df.columns else 0.0
-                        x_min_mmss = seconds_to_mmss(x_min_seconds)
-                        x_min_input = st.text_input("Start", value=x_min_mmss, key="x_min_comparative_mmss")
-                        # Convert back to seconds for processing
+                        x_min_input = st.text_input("Start", value=st.session_state.get('x_min_comparative_mmss', seconds_to_mmss(x_min_val)), key="x_min_comparative_mmss")
                         x_min = mmss_to_seconds(x_min_input)
                     else:
-                        x_min = st.number_input("Start", value=float(b_df[x_axis].min()) if b_df is not None and x_axis in b_df.columns else 0.0, format="%.2f", key="x_min_comparative", step=1.0)
+                        x_min = st.number_input("Start", value=float(x_min_val), format="%.2f", key="x_min_comparative", step=1.0)
                 with x_max_col:
                     if x_axis == 'timestamp_seconds':
-                        # Convert seconds to MM:SS format for display
-                        x_max_seconds = float(b_df[x_axis].max()) if b_df is not None and x_axis in b_df.columns else 1.0
-                        x_max_mmss = seconds_to_mmss(x_max_seconds)
-                        x_max_input = st.text_input("End", value=x_max_mmss, key="x_max_comparative_mmss")
-                        # Convert back to seconds for processing
+                        x_max_input = st.text_input("End", value=st.session_state.get('x_max_comparative_mmss', seconds_to_mmss(x_max_val)), key="x_max_comparative_mmss")
                         x_max = mmss_to_seconds(x_max_input)
                     else:
-                        x_max = st.number_input("End", value=float(b_df[x_axis].max()) if b_df is not None and x_axis in b_df.columns else 1.0, format="%.2f", key="x_max_comparative", step=1.0)
+                        x_max = st.number_input("End", value=float(x_max_val), format="%.2f", key="x_max_comparative", step=1.0)
+                with x_reset_col:
+                    st.markdown('<div style="margin-top: 28px;"></div>', unsafe_allow_html=True)
+                    if st.button("↺", key="reset_x_comparative", help="Reset X-axis range"):
+                        for k in ['x_min_comparative', 'x_max_comparative', 'x_min_comparative_mmss', 'x_max_comparative_mmss']:
+                            if k in st.session_state:
+                                del st.session_state[k]
+                        st.rerun()
 
                 st.markdown(f"<span style='font-size:1.05rem; color:#444; font-weight:500;'>{y_axis}</span>", unsafe_allow_html=True)
-                y_min_col, y_max_col = st.columns(2)
+                y_min_col, y_max_col, y_reset_col = st.columns([5, 5, 2])
                 with y_min_col:
-                    y_min = st.number_input("Start", value=float(b_df[y_axis].min()) if b_df is not None and y_axis in b_df.columns else 0.0, format="%.2f", key="y_min_comparative", step=1.0)
+                    y_min = st.number_input("Start", value=float(y_min_val), format="%.2f", key="y_min_comparative", step=1.0)
                 with y_max_col:
-                    y_max = st.number_input("End", value=float(b_df[y_axis].max()) if b_df is not None and y_axis in b_df.columns else 1.0, format="%.2f", key="y_max_comparative", step=1.0)
+                    y_max = st.number_input("End", value=float(y_max_val), format="%.2f", key="y_max_comparative", step=1.0)
+                with y_reset_col:
+                    st.markdown('<div style="margin-top: 28px;"></div>', unsafe_allow_html=True)
+                    if st.button("↺", key="reset_y_comparative", help="Reset Y-axis range"):
+                        for k in ['y_min_comparative', 'y_max_comparative']:
+                            if k in st.session_state:
+                                del st.session_state[k]
+                        st.rerun()
             with metrics_col:
+                # Calculate metrics based on current parameters
+                if (b_df is not None and v_df is not None and x_axis in b_df.columns and y_axis in b_df.columns and 
+                    x_axis in v_df.columns and y_axis in v_df.columns and 
+                    None not in (x_min, x_max, y_min, y_max)):
+                    try:
+                        b_filtered = b_df[(b_df[x_axis] >= x_min) & (b_df[x_axis] <= x_max) & (b_df[y_axis] >= y_min) & (b_df[y_axis] <= y_max)]
+                        v_filtered = v_df[(v_df[x_axis] >= x_min) & (v_df[x_axis] <= x_max) & (v_df[y_axis] >= y_min) & (v_df[y_axis] <= y_max)]
+                        
+                        if len(b_filtered) > 0 and len(v_filtered) > 0:
+                            if x_axis == 'timestamp_seconds':
+                                b_filtered, v_filtered, _ = resample_to_common_time(b_filtered, v_filtered)
+                            
+                            if len(b_filtered) > 0 and len(v_filtered) > 0:
+                                merged = pd.DataFrame()
+                                merged['benchmark'] = b_filtered[y_axis]
+                                merged['target'] = v_filtered[y_axis]
+                                rmse = np.sqrt(np.mean((merged['target'] - merged['benchmark']) ** 2))
+                                bench_range = merged['benchmark'].max() - merged['benchmark'].min()
+                                similarity = 1 - (rmse / bench_range) if bench_range != 0 else (1.0 if rmse == 0 else 0.0)
+                                similarity_index = similarity * 100
+                                merged["Difference"] = merged['target'] - merged['benchmark']
+                                merged["Z_Score"] = (merged["Difference"] - merged["Difference"].mean()) / merged["Difference"].std()
+                                abnormal_mask = abs(merged["Z_Score"]) > z_threshold
+                                abnormal_count = int(abnormal_mask.sum())
+                                metrics_ready = True
+                            else:
+                                rmse = 0.0
+                                similarity_index = 0.0
+                                abnormal_count = 0
+                                metrics_ready = False
+                        else:
+                            rmse = 0.0
+                            similarity_index = 0.0
+                            abnormal_count = 0
+                            metrics_ready = False
+                    except Exception as e:
+                        rmse = 0.0
+                        similarity_index = 0.0
+                        abnormal_count = 0
+                        metrics_ready = False
+                else:
+                    rmse = 0.0
+                    similarity_index = 0.0
+                    abnormal_count = 0
+                    metrics_ready = False
+                
                 metrics_cols = st.columns(3)
                 with metrics_cols[0]:
                     fig1 = go.Figure(go.Indicator(
