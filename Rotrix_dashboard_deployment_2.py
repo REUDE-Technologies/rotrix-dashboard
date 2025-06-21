@@ -340,6 +340,8 @@ def convert_timestamps_to_seconds(df):
     if isinstance(df, pd.DataFrame) and len(df.index) > 0:
         timestamp_cols = [col for col in df.columns if 'time' in col.lower() or 'timestamp' in col.lower()]
         for col in timestamp_cols:
+            if not pd.api.types.is_numeric_dtype(df[col]):
+                df[col] = pd.to_numeric(df[col], errors='coerce')
             if pd.api.types.is_numeric_dtype(df[col]):
                 df[col] = df[col] / 1000000
     return df
@@ -352,8 +354,9 @@ def ensure_seconds_column(df):
     timestamp_col = next((col for col in df.columns if 'time' in col.lower() or 'timestamp' in col.lower()), None)
     if timestamp_col is None:
         return df
-        
-    series = df[timestamp_col]
+    
+    # Convert to numeric, coerce errors to NaN
+    series = pd.to_numeric(df[timestamp_col], errors='coerce')
     
     # Get the current topic from the dataframe name or context
     current_topic = None
