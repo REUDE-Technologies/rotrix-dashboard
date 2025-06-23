@@ -786,7 +786,7 @@ if st.session_state.current_page == 'home':
                                 st.session_state.file_rename_mode[i] = True
                                 st.rerun()
                         with file_cols[2]:
-                            if st.button("📤", key=f"share_btn_{i}", use_container_width=True, help="Share"):
+                            if st.button("➦", key=f"share_btn_{i}", use_container_width=True, help="Share"):
                                 st.session_state.file_share_mode[i] = True
                                 st.rerun()
                         with file_cols[3]:
@@ -831,7 +831,7 @@ if st.session_state.current_page == 'home':
                         if st.session_state.file_share_mode.get(i, False):
                             with st.container():
                                 # st.markdown("---")
-                                st.markdown("**📤 Share File**")
+                                st.markdown("**➦ Share File**")
                                 share_options = st.multiselect(
                                     "Select sharing options:",
                                     ["Public Link", "ROTRIX Team", "Email"],
@@ -889,7 +889,7 @@ if st.session_state.current_page == 'home':
                     # </div>
                     # """, unsafe_allow_html=True)
                     
-                    if st.button("📤 Share All", use_container_width=True):
+                    if st.button("➦ Share All", use_container_width=True):
                         st.session_state.share_all_mode = True
                     
                     if st.session_state.get("share_all_mode", False):
