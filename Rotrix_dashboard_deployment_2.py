@@ -1051,7 +1051,7 @@ if st.session_state.current_page == 'home':
     # Analysis Type Selection - only show after files are submitted
     if st.session_state.files_submitted:
         # Analysis type selection with plus button in the same row
-        col1, col2, col3, col4 = st.columns([6, 2, 1, 0.5])
+        col1, col2 = st.columns([8, 0.75])
         with col1:
             analysis_type = st.radio(
                 "Choose the type of analysis you want to perform",
@@ -1059,15 +1059,22 @@ if st.session_state.current_page == 'home':
                 index=0,
                 horizontal=True
             )
-        with col4:
-            if st.button("➕", key="show_upload_area_btn", help="Add more files"):
-                st.session_state.show_upload_area = True
-                st.session_state.upload_opened_by_plus = True
-                st.rerun()
-        with col3:
+        with col2:
             if st.session_state.files_submitted and not st.session_state.show_upload_area:
-                if st.button("Manage Files", type="secondary", use_container_width=True):
+                st.markdown("""
+                    <style>
+                        div[data-testid="stToolbar"] {
+                            display: none;
+                        }
+                        button[kind="primary"] {
+                            background-color: #ADD8E6;
+                            color: #2C6E9E;
+                        }
+                    </style>
+                """, unsafe_allow_html=True)
+                if st.button("➕ UPLOAD", type="primary", use_container_width=True, help="Upload or manage files"):
                     st.session_state.show_upload_area = True
+                    st.session_state.upload_opened_by_plus = True
                     st.rerun()
         st.session_state.analysis_type = analysis_type
 
@@ -1413,7 +1420,9 @@ if st.session_state.current_page == 'home':
                                             # Convert seconds to MM:SS format for display
                                             x_min_seconds = float(df[x_axis].min()) if x_axis in df.columns else 0.0
                                             x_min_mmss = seconds_to_mmss(x_min_seconds)
-                                            x_min_input = st.text_input("Start", value=x_min_mmss, key="x_min_single_mmss")
+                                            if "x_min_single_mmss" not in st.session_state:
+                                                st.session_state["x_min_single_mmss"] = x_min_mmss
+                                            x_min_input = st.text_input("Start", key="x_min_single_mmss")
                                             # Convert back to seconds for processing
                                             x_min = mmss_to_seconds(x_min_input)
                                         else:
@@ -1423,7 +1432,9 @@ if st.session_state.current_page == 'home':
                                             # Convert seconds to MM:SS format for display
                                             x_max_seconds = float(df[x_axis].max()) if x_axis in df.columns else 1.0
                                             x_max_mmss = seconds_to_mmss(x_max_seconds)
-                                            x_max_input = st.text_input("End", value=x_max_mmss, key="x_max_single_mmss")
+                                            if "x_max_single_mmss" not in st.session_state:
+                                                st.session_state["x_max_single_mmss"] = x_max_mmss
+                                            x_max_input = st.text_input("End", key="x_max_single_mmss")
                                             # Convert back to seconds for processing
                                             x_max = mmss_to_seconds(x_max_input)
                                         else:
@@ -1949,6 +1960,11 @@ if st.session_state.current_page == 'home':
             metrics_ready = False
             x_axis = y_axis = z_threshold = x_min = x_max = y_min = y_max = None
             
+            x_axis_options = []
+            y_axis_options = []
+            default_x = None
+            default_y = None
+
             if isinstance(b_df, pd.DataFrame) and isinstance(v_df, pd.DataFrame):
                 b_numeric = get_numeric_columns(b_df)
                 v_numeric = get_numeric_columns(v_df)
@@ -2014,13 +2030,19 @@ if st.session_state.current_page == 'home':
                 x_min_col, x_max_col, x_reset_col = st.columns([5, 5, 2])
                 with x_min_col:
                     if x_axis == 'timestamp_seconds':
-                        x_min_input = st.text_input("Start", value=st.session_state.get('x_min_comparative_mmss', seconds_to_mmss(x_min_val)), key="x_min_comparative_mmss")
+                        x_min_mmss = seconds_to_mmss(x_min_val)
+                        if 'x_min_comparative_mmss' not in st.session_state:
+                            st.session_state['x_min_comparative_mmss'] = x_min_mmss
+                        x_min_input = st.text_input("Start", key='x_min_comparative_mmss')
                         x_min = mmss_to_seconds(x_min_input)
                     else:
                         x_min = st.number_input("Start", value=float(x_min_val), format="%.2f", key="x_min_comparative", step=1.0)
                 with x_max_col:
                     if x_axis == 'timestamp_seconds':
-                        x_max_input = st.text_input("End", value=st.session_state.get('x_max_comparative_mmss', seconds_to_mmss(x_max_val)), key="x_max_comparative_mmss")
+                        x_max_mmss = seconds_to_mmss(x_max_val)
+                        if 'x_max_comparative_mmss' not in st.session_state:
+                            st.session_state['x_max_comparative_mmss'] = x_max_mmss
+                        x_max_input = st.text_input("End", key='x_max_comparative_mmss')
                         x_max = mmss_to_seconds(x_max_input)
                     else:
                         x_max = st.number_input("End", value=float(x_max_val), format="%.2f", key="x_max_comparative", step=1.0)
