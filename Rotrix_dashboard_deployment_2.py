@@ -185,8 +185,7 @@ def load_csv(file):
             tmp_file.write(file.read())
         
         # Read the CSV from the temporary file
-        file_name = tmp_file.name
-        return pd.read_csv(StringIO(file_name.decode("utf-8")))
+        return pd.read_csv(tmp_file.name)
 
 def load_ulog(file, key_suffix=""):
     ALLOWED_TOPICS = set(t for t, _ in TOPIC_ASSESSMENT_PAIRS)
