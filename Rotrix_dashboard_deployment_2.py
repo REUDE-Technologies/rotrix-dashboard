@@ -864,21 +864,21 @@ if st.session_state.current_page == 'home':
                     total_files = len(st.session_state.uploaded_files)
                     total_size = sum(f.size for f in st.session_state.uploaded_files) / 1024  # KB
                     
-                    # st.markdown(f"""
-                    # <div class="file-stats">
-                    #     <h6>📊 File Statistics</h6>
-                    #     <div class="stat-value">{total_files}</div>
-                    #     <div class="stat-label">Total Files</div>
-                    # </div>
-                    # """, unsafe_allow_html=True)
+                    st.markdown(f"""
+                    <div class="file-stats">
+                        <h6>📊 File Statistics</h6>
+                        <div class="stat-value">{total_files}</div>
+                        <div class="stat-label">Total Files</div>
+                    </div>
+                    """, unsafe_allow_html=True)
                     
-                    # st.markdown(f"""
-                    # <div class="file-stats">
-                    #     <h6>💾 Storage</h6>
-                    #     <div class="stat-value">{total_size:.1f}</div>
-                    #     <div class="stat-label">Total Size (KB)</div>
-                    # </div>
-                    # """, unsafe_allow_html=True)
+                    st.markdown(f"""
+                    <div class="file-stats">
+                        <h6>💾 Storage</h6>
+                        <div class="stat-value">{total_size:.1f}</div>
+                        <div class="stat-label">Total Size (KB)</div>
+                    </div>
+                    """, unsafe_allow_html=True)
                     
                     # st.markdown("---")
                     
