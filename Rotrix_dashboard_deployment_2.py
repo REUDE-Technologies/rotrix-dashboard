@@ -861,8 +861,8 @@ if st.session_state.current_page == 'home':
                     #     help="Drag and drop files here or click to browse"
                     # )
                     # # File statistics with enhanced styling
-                    # total_files = len(st.session_state.uploaded_files)
-                    # total_size = sum(f.size for f in st.session_state.uploaded_files) / 1024  # KB
+                    total_files = len(st.session_state.uploaded_files)
+                    total_size = sum(f.size for f in st.session_state.uploaded_files) / 1024  # KB
                     
                     # st.markdown(f"""
                     # <div class="file-stats">
