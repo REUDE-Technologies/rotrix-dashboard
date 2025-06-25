@@ -594,17 +594,6 @@ ASSESSMENT_Y_AXIS_MAP = {
 def get_base64_image(image_path):
     with open(image_path, "rb") as img_file:
         return base64.b64encode(img_file.read()).decode()
-
-# logo_base64 = get_base64_image(os.path.join(os.path.dirname(__file__), "Rotrix-Logo.png"))
-# # st.logo(logo_base64, *, size="medium", link=None, icon_image=None)
-# st.markdown(f"""
-#     <div style="display: flex; position: fixed; top:50px; left: 50px; z-index:50; justify-content: left; align-items: center; padding: 1px; background-color:white; border-radius:25px;">
-#         <a href="http://rotrixdemo.reude.tech/" target="_blank">
-#             <img src="data:image/png;base64,{logo_base64}" width="180" alt="Rotrix Logo">
-#         </a>
-#     </div>
-# """, unsafe_allow_html=True)
-
 # Home Page
 if st.session_state.current_page == 'home':
     # Add custom CSS for fixed header
@@ -876,7 +865,7 @@ if st.session_state.current_page == 'home':
             
             # Show file preview section if files are uploaded
             if st.session_state.uploaded_files:
-                st.markdown("<h4 style='margin-top: 30px; color: #495057;'>📋 File Preview & Management</h4>", unsafe_allow_html=True)
+                st.markdown("<h4 style='margin-top: 0px; color: #495057;'>📋 File Preview & Management</h4>", unsafe_allow_html=True)
                 
                 # Two-column layout for file preview
                 preview_col, actions_col = st.columns([0.7, 0.3])
@@ -889,28 +878,29 @@ if st.session_state.current_page == 'home':
                         file_type_badge = f"<span class='file-type-badge {file_ext}'>{file_ext}</span>"
                         
                         # Use columns to align file name/details and action buttons in a single row
-                        file_cols = st.columns([4, 1, 1, 1, 1])  # Adjust width as needed
+                        file_cols = st.columns([12, 1, 1, 1, 1, 1])  # Add extra column for preview
                         with file_cols[0]:
                             st.markdown(f"""
                             <div style="font-weight: 600; color: #495057;">
                                 📄 {file.name}
                                 <span style="font-size: 12px; color: #6c757d; margin-left: 10px;">
-                                    Size: {file.size / 1024:.1f} KB | Type: {file.type or 'Unknown'} {file_type_badge}
-                                </span><br/>
-                                <span style="font-size: 11px; color: #adb5bd;">
-                                    Uploaded: {file.name} • {file.size} bytes
+                                    Size: {file.size / (1024*1024):.1f} MB | Type: {file.type or 'Unknown'} {file_type_badge}
                                 </span>
                             </div>
                             """, unsafe_allow_html=True)
                         with file_cols[1]:
-                            if st.button("✏️", key=f"rename_btn_{i}", use_container_width=True, help="Rename"):
-                                st.session_state.file_rename_mode[i] = True
+                            if st.button("🔍", key=f"preview_btn_{i}", use_container_width=True, help="Quick Preview"):
+                                st.session_state[f"preview_mode_{i}"] = not st.session_state.get(f"preview_mode_{i}", False)
                                 st.rerun()
                         with file_cols[2]:
-                            if st.button("➦", key=f"share_btn_{i}", use_container_width=True, help="Share"):
-                                st.session_state.file_share_mode[i] = True
+                            if st.button("✏️", key=f"rename_btn_{i}", use_container_width=True, help="Rename"):
+                                st.session_state.file_rename_mode[i] = not st.session_state.file_rename_mode.get(i, False)
                                 st.rerun()
                         with file_cols[3]:
+                            if st.button("➦", key=f"share_btn_{i}", use_container_width=True, help="Share"):
+                                st.session_state.file_share_mode[i] = not st.session_state.file_share_mode.get(i, False)
+                                st.rerun()
+                        with file_cols[4]:
                             file.seek(0)
                             st.download_button(
                                 label="⬇️",
@@ -922,10 +912,28 @@ if st.session_state.current_page == 'home':
                                 help="Download"
                             )
                             file.seek(0)
-                        with file_cols[4]:
+                        with file_cols[5]:
                             if st.button("🗑️", key=f"remove_btn_{i}", use_container_width=True, help="Remove"):
                                 st.session_state.uploaded_files.pop(i)
                                 st.rerun()
+                        # Quick Preview UI
+                        if st.session_state.get(f"preview_mode_{i}", False):
+                            with st.expander("Quick Preview", expanded=True):
+                                file.seek(0)
+                                file_ext = file.name.split('.')[-1].lower() if '.' in file.name else 'unknown'
+                                if file_ext == "csv":
+                                    try:
+                                        df = pd.read_csv(file, nrows=5)
+                                        st.dataframe(df, use_container_width=True)
+                                    except Exception as e:
+                                        st.error(f"Could not preview CSV: {e}")
+                                elif file_ext == "ulg":
+                                    size_mb = file.size / (1024 * 1024)
+                                    st.info("ULG preview: Only file name, size, and type shown.")
+                                    st.write({"Name": file.name, "Size (MB)": f"{size_mb:.2f} MB", "Type": file.type})
+                                else:
+                                    st.warning("Preview not supported for this file type.")
+                                file.seek(0)
                         # Handle rename and share modes as before, below this row
                         if st.session_state.file_rename_mode.get(i, False):
                             with st.container():
@@ -951,24 +959,38 @@ if st.session_state.current_page == 'home':
                                         st.rerun()
                         if st.session_state.file_share_mode.get(i, False):
                             with st.container():
-                                # st.markdown("---")
                                 st.markdown("**➦ Share File**")
-                                share_options = st.multiselect(
-                                    "Select sharing options:",
+                                share_option = st.selectbox(
+                                    "Select sharing option:",
                                     ["Public Link", "ROTRIX Team", "Email"],
-                                    key=f"share_options_{i}"
+                                    key=f"share_option_{i}"
                                 )
-                                col_share1, col_share2 = st.columns([1, 1])
-                                with col_share1:
-                                    if st.button("✅ Share", key=f"confirm_share_{i}", use_container_width=True):
-                                        if share_options:
-                                            st.success(f"File '{file.name}' shared via: {', '.join(share_options)}")
-                                        st.session_state.file_share_mode[i] = False
-                                        st.rerun()
-                                with col_share2:
-                                    if st.button("❌ Cancel", key=f"cancel_share_{i}", use_container_width=True):
-                                        st.session_state.file_share_mode[i] = False
-                                        st.rerun()
+                                email_address = None
+                                if share_option == "Email":
+                                    email_address = st.text_input(
+                                        "Recipient Email:",
+                                        key=f"email_input_{i}",
+                                        placeholder="Enter recipient email"
+                                    )
+                                    col_share1, col_share2 = st.columns([1, 1])
+                                    with col_share1:
+                                        if st.button("✅ Share", key=f"confirm_share_{i}", use_container_width=True):
+                                            if share_option == "Email":
+                                                if email_address:
+                                                    st.success(f"File '{file.name}' shared via Email to: {email_address}")
+                                                else:
+                                                    st.warning("Please enter a recipient email address.")
+                                                    st.stop()
+                                            else:
+                                                st.info(f"🔧 {share_option} sharing is a Work in Progress.")
+                                            st.session_state.file_share_mode[i] = False
+                                            st.rerun()
+                                    with col_share2:
+                                        if st.button("❌ Cancel", key=f"cancel_share_{i}", use_container_width=True):
+                                            st.session_state.file_share_mode[i] = False
+                                            st.rerun()
+                                elif share_option in ["Public Link", "ROTRIX Team"]:
+                                    st.info(f"🔧 {share_option} sharing is a Work in Progress.")
                         # st.markdown("---")
                 
                 with actions_col:
@@ -983,7 +1005,7 @@ if st.session_state.current_page == 'home':
                     # )
                     # # File statistics with enhanced styling
                     total_files = len(st.session_state.uploaded_files)
-                    total_size = sum(f.size for f in st.session_state.uploaded_files) / 1024  # KB
+                    total_size = sum(f.size for f in st.session_state.uploaded_files) / (1024*1024) # MB
                     
                     st.markdown(f"""
                     <div class="file-stats">
@@ -997,32 +1019,45 @@ if st.session_state.current_page == 'home':
                     <div class="file-stats">
                         <h6>💾 Storage</h6>
                         <div class="stat-value">{total_size:.1f}</div>
-                        <div class="stat-label">Total Size (KB)</div>
+                        <div class="stat-label">Total Size (MB)</div>
                     </div>
                     """, unsafe_allow_html=True)
                     
                     if st.button("➦ Share All", use_container_width=True):
-                        st.session_state.share_all_mode = True
+                        st.session_state.share_all_mode = not st.session_state.get("share_all_mode", False)
                     
                     if st.session_state.get("share_all_mode", False):
                         st.markdown("**Share All Files**")
-                        share_all_options = st.multiselect(
-                            "Select sharing options for all files:",
+                        share_all_option = st.selectbox(
+                            "Select sharing option for all files:",
                             ["Public Link", "ROTRIX Team", "Email"],
-                            key="share_all_options"
+                            key="share_all_option"
                         )
-                        col_share_all1, col_share_all2 = st.columns([1, 1])
-                        with col_share_all1:
-                            if st.button("✅ Confirm Share All", key="confirm_share_all", use_container_width=True):
-                                if share_all_options:
+                        share_all_email = None
+                        if share_all_option == "Email":
+                            share_all_email = st.text_input(
+                                "Recipient Email:",
+                                key="share_all_email_input",
+                                placeholder="Enter recipient email"
+                            )
+                            col_share_all1, col_share_all2 = st.columns([1, 1])
+                            with col_share_all1:
+                                if st.button("✅ Confirm Share All", key="confirm_share_all", use_container_width=True):
                                     file_names = [f.name for f in st.session_state.uploaded_files]
-                                    st.success(f"All files ({', '.join(file_names)}) shared via: {', '.join(share_all_options)}")
-                                else:
-                                    st.warning("Please select at least one sharing option.")
-                                st.session_state.share_all_mode = False
-                        with col_share_all2:
-                            if st.button("❌ Cancel", key="cancel_share_all", use_container_width=True):
-                                st.session_state.share_all_mode = False
+                                    if share_all_option == "Email":
+                                        if share_all_email:
+                                            st.success(f"All files ({', '.join(file_names)}) shared via Email to: {share_all_email}")
+                                        else:
+                                            st.warning("Please enter a recipient email address.")
+                                            st.stop()
+                                    else:
+                                        st.info(f"🔧 {share_all_option} sharing is a Work in Progress.")
+                                    st.session_state.share_all_mode = False
+                            with col_share_all2:
+                                if st.button("❌ Cancel", key="cancel_share_all", use_container_width=True):
+                                    st.session_state.share_all_mode = False
+                        elif share_all_option in ["Public Link", "ROTRIX Team"]:
+                            st.info(f"🔧 {share_all_option} sharing is a Work in Progress.")
                     
                     if st.button("🗑️ Clear All", use_container_width=True):
                         st.session_state.uploaded_files.clear()
