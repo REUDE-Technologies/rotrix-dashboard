@@ -827,8 +827,15 @@ if st.session_state.current_page == 'home':
                     </div>
                 </div>
                 """, unsafe_allow_html=True)
-                github_url = st.text_input("GitHub URL (raw, blob, or folder)", key="github_url_input", label_visibility="collapsed", placeholder="e.g. https://github.com/user/repo/blob/main/data.csv")
-                if github_url:
+                if st.session_state.get("clear_github_url_input", False):
+                    st.session_state.github_url_input = ""
+                    st.session_state.clear_github_url_input = False
+                github_col, fetch_col  = st.columns([5, 1])
+                with fetch_col:
+                    fetch_github = st.button("Fetch", key="fetch_github_btn", use_container_width=True)
+                with github_col:
+                    github_url = st.text_input("GitHub URL (raw, blob, or folder)", key="github_url_input", label_visibility="collapsed", placeholder="e.g. https://github.com/user/repo/blob/main/data.csv")
+                if fetch_github and github_url:
                     result = process_url(github_url)
                     if result:
                         existing_names = [f.name for f in st.session_state.uploaded_files]
@@ -837,8 +844,8 @@ if st.session_state.current_page == 'home':
                                 filetype = "text/csv" if file_ext == ".csv" else "application/octet-stream"
                                 file_like = UploadedGitHubFile(file_content, file_name, filetype)
                                 st.session_state.uploaded_files.append(file_like)
-                        # st.success(f"Fetched {len(result)} file(s) from GitHub.")
-                        # st.rerun()
+                        st.session_state.clear_github_url_input = True  # Set flag to clear input on next rerun
+                        st.rerun()
                     else:
                         st.warning("No valid .csv or .ulg files found at the provided URL.")
             with upload_col:
