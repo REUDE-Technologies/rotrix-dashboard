@@ -2519,5 +2519,9 @@ if (st.session_state.get('analysis_type') == 'Comparative Analysis' and len(st.s
 
 mem = psutil.virtual_memory()
 cpu = psutil.cpu_percent(interval=1)
-st.write(f"CPU usage: {cpu}%")
-st.write(f"Memory usage: {mem.percent}% ({mem.used / 1024**2:.2f} MB / {mem.total / 1024**2:.2f} MB)")
+disk = psutil.disk_usage("/")
+st.info(
+    f"**Resource Usage:**  \n"
+    f"CPU: **{cpu}%**  \n"
+    f"Memory: **{mem.percent}%** ({mem.used/1024**2:.2f} MB / {mem.total/1024**2:.2f} MB)  \n"
+    f"Disk: **{disk.percent}%** ({disk.used/1024**3:.2f} GB / {disk.total/1024**3:.2f} GB)")
