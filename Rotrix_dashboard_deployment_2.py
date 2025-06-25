@@ -8,7 +8,7 @@ import plotly.express as px
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 from sklearn.metrics import mean_squared_error
-from io import StringIO
+from io import StringIO, BytesIO
 from PIL import Image
 import base64
 # import open3d as o3d
@@ -18,8 +18,7 @@ from pyulog import ULog
 import requests
 
 class UploadedGitHubFile:
-    def __init__(self, content, name, filetype): 
-        from io import BytesIO
+    def __init__(self, content, name, filetype):
         self.file = BytesIO(content)
         self.name = name
         self.type = filetype
