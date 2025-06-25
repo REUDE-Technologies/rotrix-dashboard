@@ -16,6 +16,7 @@ import tempfile
 import os
 from pyulog import ULog
 import requests
+import psutil
 
 class UploadedGitHubFile:
     def __init__(self, content, name, filetype):
@@ -2514,3 +2515,9 @@ if (st.session_state.get('analysis_type') == 'Comparative Analysis' and len(st.s
         st.session_state.show_upload_area = True
         st.rerun()
     st.markdown("</div>", unsafe_allow_html=True)
+
+
+mem = psutil.virtual_memory()
+cpu = psutil.cpu_percent(interval=1)
+st.write(f"CPU usage: {cpu}%")
+st.write(f"Memory usage: {mem.percent}% ({mem.used / 1024**2:.2f} MB / {mem.total / 1024**2:.2f} MB)")
