@@ -17,8 +17,12 @@ st.set_page_config(page_title="Point Cloud Data Dashboard", layout="wide")
 
 # 🔹 Logo
 def get_base64_image(image_path):
-    with open(image_path, "rb") as img_file:
-        return base64.b64encode(img_file.read()).decode()
+    try:
+        with open(image_path, "rb") as img_file:
+            return base64.b64encode(img_file.read()).decode()
+    except FileNotFoundError:
+        st.error("Logo file 'Rotrix-Logo.png' not found. Please ensure it exists in the working directory.")
+        return ""
 
 logo_base64 = get_base64_image("Rotrix-Logo.png")
 st.markdown(f"""
@@ -46,9 +50,62 @@ def load_data(file_content, filetype):
         return df
     return None
 
+# Process local folder
+def process_local_folder(folder_path):
+    try:
+        if not os.path.isdir(folder_path):
+            st.error(f"The path '{folder_path}' is not a valid directory.")
+            return None
+        file_data = {}
+        for file_name in os.listdir(folder_path):
+            file_ext = os.path.splitext(file_name)[-1].lower()
+            if file_ext in [".csv", ".pcd"]:
+                file_path = os.path.join(folder_path, file_name)
+                with open(file_path, 'rb') as f:
+                    file_data[file_name] = (f.read(), file_ext)
+        if not file_data:
+            st.warning(f"No .csv or .pcd files found in the folder: {folder_path}")
+            return None
+        return file_data
+    except PermissionError:
+        st.error(f"Permission denied accessing folder: {folder_path}")
+        return None
+    except Exception as e:
+        st.error(f"Error processing local folder: {str(e)}")
+        return None
+
+# Process local file
+def process_local_file(file_path):
+    try:
+        if not os.path.isfile(file_path):
+            st.error(f"The path '{file_path}' is not a valid file.")
+            return None
+        file_name = os.path.basename(file_path)
+        file_ext = os.path.splitext(file_name)[-1].lower()
+        if file_ext in [".csv", ".pcd"]:
+            with open(file_path, 'rb') as f:
+                return {file_name: (f.read(), file_ext)}
+        else:
+            st.warning(f"Unsupported file type. Please provide a .csv or .pcd file.")
+            return None
+    except PermissionError:
+        st.error(f"Permission denied accessing file: {file_path}")
+        return None
+    except Exception as e:
+        st.error(f"Error processing local file: {str(e)}")
+        return None
+
 # Fetch files from GitHub folder or load single file
 def process_url(url):
-    if "github.com" in url:
+    url = url.strip()
+    # Check if the input is a local path (file or folder)
+    if os.path.exists(url):
+        if os.path.isdir(url):
+            return process_local_folder(url)
+        elif os.path.isfile(url):
+            return process_local_file(url)
+    # Handle GitHub URLs
+    if "github.com" in url or "raw.githubusercontent.com" in url:
         try:
             # Handle folder URL (e.g., https://github.com/username/repo/tree/main/folder)
             if "tree" in url:
@@ -58,20 +115,18 @@ def process_url(url):
                     return None
                 base_url = parts[0].rstrip('/')
                 path = parts[1].lstrip('/')
-                # Extract repo and folder path
                 url_parts = base_url.split("/")
                 if len(url_parts) < 5 or url_parts[2] != "github.com":
                     st.error("Unable to parse repository from URL.")
                     return None
-                repo = f"{url_parts[3]}/{url_parts[4]}"  # e.g., username/repo
-                folder_path = path.split('/', 1)[-1] if '/' in path else path  # Get path after branch
+                repo = f"{url_parts[3]}/{url_parts[4]}"
+                folder_path = path.split('/', 1)[-1] if '/' in path else path
                 api_url = f"https://api.github.com/repos/{repo}/contents/{folder_path}"
-                st.write(f"Debug: API URL: {api_url}")  # Debug output
                 response = requests.get(api_url, headers={"Accept": "application/vnd.github.v3+json"})
                 if response.status_code == 200:
                     files = [item for item in response.json() if item['type'] == 'file' and item['name'].endswith(('.csv', '.pcd'))]
                     if not files:
-                        st.warning("No .csv or .pcd files found in the folder.")
+                        st.warning("No .csv or .pcd files found in the GitHub folder.")
                         return None
                     file_data = {}
                     for file in files:
@@ -81,7 +136,7 @@ def process_url(url):
                             file_data[file['name']] = (file_response.content, file_ext)
                     return file_data if file_data else None
                 else:
-                    st.error(f"Failed to fetch folder contents. Status code: {response.status_code}, Message: {response.text}, API URL: {api_url}")
+                    st.error(f"Failed to fetch GitHub folder contents. Status code: {response.status_code}")
                     return None
             # Handle raw file URL (e.g., https://raw.githubusercontent.com/username/repo/main/file.csv)
             elif "raw.githubusercontent.com" in url:
@@ -92,7 +147,7 @@ def process_url(url):
                     if response.status_code == 200:
                         return {file_name: (response.content, file_ext)}
                     else:
-                        st.error(f"Failed to download file. Status code: {response.status_code}, URL: {url}")
+                        st.error(f"Failed to download GitHub file. Status code: {response.status_code}")
                         return None
             # Handle blob URL (e.g., https://github.com/username/repo/blob/main/file.csv)
             elif "/blob/" in url:
@@ -104,14 +159,13 @@ def process_url(url):
                     if response.status_code == 200:
                         return {file_name: (response.content, file_ext)}
                     else:
-                        st.error(f"Failed to download file. Status code: {response.status_code}, URL: {raw_url}")
+                        st.error(f"Failed to download GitHub file. Status code: {response.status_code}")
                         return None
             # Handle direct file URL (e.g., https://github.com/username/repo/filename.csv)
             elif len(url.split("/")) > 4 and url.split("/")[4] not in ["tree", "blob", "raw"]:
-                # Assume it's a file URL and convert to raw
                 base_parts = url.split("/")
                 repo = f"{base_parts[3]}/{base_parts[4]}"
-                file_path = "/".join(base_parts[5:])  # Path including file name
+                file_path = "/".join(base_parts[5:])
                 raw_url = f"https://raw.githubusercontent.com/{repo}/main/{file_path}"
                 file_name = file_path.split("/")[-1]
                 file_ext = os.path.splitext(file_name)[-1].lower()
@@ -120,15 +174,17 @@ def process_url(url):
                     if response.status_code == 200:
                         return {file_name: (response.content, file_ext)}
                     else:
-                        st.error(f"Failed to download file. Status code: {response.status_code}, URL: {raw_url}")
+                        st.error(f"Failed to download GitHub file. Status code: {response.status_code}")
                         return None
             else:
                 st.warning("Unsupported GitHub URL format. Please use a folder URL with 'tree/' or a raw/blob file URL.")
                 return None
         except Exception as e:
-            st.error(f"Error processing URL: {str(e)}")
+            st.error(f"Error processing GitHub URL: {str(e)}")
             return None
-    return None
+    else:
+        st.warning("The provided path is neither a valid GitHub URL nor a local folder/file. Please upload files manually or provide a valid path.")
+        return None
 
 st.markdown("<h3 style='color:#c71585;'>🚀 Data Visionary</h3>", unsafe_allow_html=True)
 st.markdown("<h4 style='font-size:20px; color:#0068c9;'>🔼 Upload Benchmark & Target Files</h4>", unsafe_allow_html=True)
@@ -136,23 +192,18 @@ st.markdown("<h4 style='font-size:20px; color:#0068c9;'>🔼 Upload Benchmark & 
 # URL Input and File Upload in Columns
 col1, col2 = st.columns(2)
 with col1:
-    url = st.text_input("Enter GitHub Raw File or Folder URL")
+    url = st.text_input("Enter GitHub Raw File/Folder URL or Local Folder/File Path")
     if url:
         result = process_url(url)
         if result:
-            # Store fetched files in session_state for selection
-            if isinstance(list(result.values())[0], dict):  # Folder case
-                st.error("Unexpected folder structure in single file case.")
-            else:
-                st.session_state.uploaded_files = result
-                for file_name, (file_content, file_ext) in result.items():
-                    df = load_data(file_content, file_ext)
-                    if df is not None:
-                        st.session_state[file_name] = df
-                        st.success(f"{file_ext[1:].upper()} file '{file_name}' loaded successfully!")
-                        # st.dataframe(df)
+            st.session_state.uploaded_files = result
+            for file_name, (file_content, file_ext) in result.items():
+                df = load_data(file_content, file_ext)
+                if df is not None:
+                    st.session_state[file_name] = df
+                    st.success(f"{file_ext[1:].upper()} file '{file_name}' loaded successfully!")
         else:
-            st.warning("The provided path is not a valid GitHub folder or raw file URL. Please upload files manually via drag and drop below.")
+            st.warning("The provided path is not valid. Please upload files manually via drag and drop below.")
 
 with col2:
     benchmark_files = st.file_uploader("📂 Upload Benchmark File", type=["csv", ".pcd"], accept_multiple_files=True)
@@ -229,7 +280,7 @@ with tab1:
                 x_axis = st.selectbox("X-Axis", ["None"] + common_cols, key="x_axis_select")
                 y_axis = st.selectbox("Y-Axis", ["None"] + common_cols, key="y_axis_select")
                 sample_size = st.slider("Sample Size (for large datasets)", 1000, 100000, 10000, 1000, 
-                                       help="Reduce the number of points to plot for performance. Set to a lower value for large datasets.")
+                                       help="Reduce the number of points to plot for performance.")
                 z_threshold = st.slider("Z-Score Threshold for Abnormal Points", 1.0, 5.0, 3.0, 0.1,
                                        help="Points with Z-score above this threshold will be marked as abnormal.")
 
@@ -255,10 +306,6 @@ with tab1:
 
                     merged = pd.merge(b_filtered, v_filtered, on=x_axis, suffixes=('_benchmark', '_validation'), how='inner')
 
-                    # Debug: Check merged DataFrame
-                    st.write("Debug: Merged DataFrame columns:", merged.columns.tolist())
-                    st.write("Debug: Merged DataFrame shape:", merged.shape)
-
                     # Calculate abnormal points and stats for validation data
                     if not merged.empty and f"{y_axis}_validation" in merged.columns:
                         val_col = f"{y_axis}_validation"
@@ -281,8 +328,6 @@ with tab1:
                 elif merged.empty:
                     st.warning("No data to plot. Check filters or column selections.")
                 else:
-                    st.markdown("<div style='min-height: 10px'>", unsafe_allow_html=True)
-                    st.markdown("</div>", unsafe_allow_html=True)
                     st.markdown("### 🧮 Plot Visualization")
                     fig = make_subplots(rows=2, cols=1, subplot_titles=["Abirami", "Keerthishree"], shared_yaxes=True)
 
@@ -324,7 +369,7 @@ with tab1:
     else:
         st.info("Please upload both Abirami and Keerthishree files or pre-converted CSVs.")
 
-# Helper function for abnormality detection (included for reference, but implemented inline)
+# Helper function for abnormality detection
 def detect_abnormalities(series, threshold=3.0):
     if series.empty or not pd.api.types.is_numeric_dtype(series):
         return pd.Series([False]), pd.Series([0.0])
