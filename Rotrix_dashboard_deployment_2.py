@@ -1,4 +1,4 @@
-# type: ignore #Modified script to support both single file analysis and comparative assessment modes
+#Modified script to support both single file analysis and comparative assessment modes
 
 
 import streamlit as st
