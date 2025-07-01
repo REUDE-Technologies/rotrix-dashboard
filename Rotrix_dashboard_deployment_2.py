@@ -1,4 +1,4 @@
-#Modified script to support both single file analysis and comparative assessment modes
+# type: ignore #Modified script to support both single file analysis and comparative assessment modes
 
 
 import streamlit as st
@@ -16,10 +16,12 @@ import tempfile
 import os
 from pyulog import ULog
 import requests
-# import psutil
+import psutil
+import csv
+import io
 
 class UploadedGitHubFile:
-    def __init__(self, content, name, filetype):
+    def __init__(self, content, name, filetype): 
         self.file = BytesIO(content)
         self.name = name
         self.type = filetype
@@ -266,19 +268,31 @@ def change_page(page):
 
 # Utility functions
 def load_csv(file):
-    # Create a temporary file to store the content
-    with tempfile.NamedTemporaryFile(delete=False, suffix='.csv') as tmp_file:
-        # If file is a string (path), read directly
-        if isinstance(file, str):
-            with open(file, 'rb') as f:
-                tmp_file.write(f.read())
-        else:
-            # If file is a file object, write its content
+    if isinstance(file, str):
+        with open(file, 'r', encoding='utf-8') as f:
+            lines = [next(f) for _ in range(10)]
+        file_obj = file
+        is_path = True
+    else:
+        file.seek(0)
+        lines = [file.readline().decode('utf-8') for _ in range(10)]
+        file.seek(0)
+        file_obj = file
+        is_path = False
+    # Find the header row index
+    header_row = None
+    for i, line in enumerate(lines):
+        if "TestrecordId" in line or "Timestamp" in line or "Speedmms" in line:
+            header_row = i
+            break
+    if header_row is None:
+        header_row = 4
+    try:
+        return pd.read_csv(file_obj, encoding='utf-8', skiprows=header_row, header=0)
+    except Exception:
+        if not isinstance(file, str):
             file.seek(0)
-            tmp_file.write(file.read())
-        
-        # Read the CSV from the temporary file
-        return pd.read_csv(tmp_file.name)
+        return pd.read_csv(file_obj, encoding='utf-8-sig', skiprows=header_row, header=0)
 
 def load_ulog(file, key_suffix=""):
     ALLOWED_TOPICS = set(t for t, _ in TOPIC_ASSESSMENT_PAIRS)
@@ -427,6 +441,12 @@ def load_data(file, filetype, key_suffix):
     except Exception as e:
         st.error(f"Error loading data: {str(e)}")
         return None, None
+
+def parse_timestamp_to_seconds(timestamp_str):
+    """Parse various timestamp formats to seconds."""
+    if pd.isna(timestamp_str) or timestamp_str == '':
+        return 0.0
+    timestamp_str = str(timestamp_str).strip()
 
 def convert_timestamps_to_seconds(df):
     """Convert timestamp columns to seconds."""
@@ -594,6 +614,7 @@ ASSESSMENT_Y_AXIS_MAP = {
 def get_base64_image(image_path):
     with open(image_path, "rb") as img_file:
         return base64.b64encode(img_file.read()).decode()
+
 # Home Page
 if st.session_state.current_page == 'home':
     # Add custom CSS for fixed header
@@ -1370,22 +1391,35 @@ if st.session_state.current_page == 'home':
             with col_swap:
                 st.markdown("<br>", unsafe_allow_html=True)  # vertical align
                 if st.button("⇄", key="swap_files", help="Swap Benchmark and Target"):
-                    # Swap the selections
-                    temp = st.session_state.benchmark_file_selection
-                    st.session_state.benchmark_file_selection = st.session_state.target_file_selection
-                    st.session_state.target_file_selection = temp
-                    # Swap file contents if used
-                    temp_content = st.session_state.get('selected_bench_content')
-                    st.session_state['selected_bench_content'] = st.session_state.get('selected_val_content')
-                    st.session_state['selected_val_content'] = temp_content
+                    # Swap file selections
+                    st.session_state.benchmark_file_selection, st.session_state.target_file_selection = (
+                        st.session_state.target_file_selection, st.session_state.benchmark_file_selection
+                    )
+                    # Swap file contents
+                    st.session_state['selected_bench_content'], st.session_state['selected_val_content'] = (
+                        st.session_state.get('selected_val_content'), st.session_state.get('selected_bench_content')
+                    )
                     # Swap file names
-                    temp_name = st.session_state.get('selected_bench')
-                    st.session_state['selected_bench'] = st.session_state.get('selected_val')
-                    st.session_state['selected_val'] = temp_name
-                    # Swap topic if present
-                    if 'selected_assessment' in st.session_state:
-                        temp_topic = st.session_state.get('selected_assessment')
-                        st.session_state['selected_assessment'] = st.session_state.get('selected_assessment')
+                    st.session_state['selected_bench'], st.session_state['selected_val'] = (
+                        st.session_state.get('selected_val'), st.session_state.get('selected_bench')
+                    )
+                    # Swap axis/parameter session state variables
+                    param_list = [
+                        "x_axis_comparative", "y_axis_comparative",
+                        "x_min_comparative", "x_max_comparative",
+                        "y_min_comparative", "y_max_comparative",
+                        "x_min_comparative_mmss", "x_max_comparative_mmss"
+                    ]
+                    for param in param_list:
+                        swap_param = param + "_swap"
+                        if param in st.session_state:
+                            st.session_state[swap_param] = st.session_state[param]
+                    for param in param_list:
+                        swap_param = param + "_swap"
+                        if swap_param in st.session_state:
+                            st.session_state[param], st.session_state[swap_param] = (
+                                st.session_state[swap_param], st.session_state[param]
+                            )
                     st.rerun()
 
             with col2:
@@ -1549,10 +1583,16 @@ if st.session_state.current_page == 'home':
                                     default_x = 'timestamp_seconds' if 'timestamp_seconds' in ALLOWED_X_AXIS else 'Index'
                                 else:
                                     default_x = 'Index' if 'Index' in ALLOWED_X_AXIS else ALLOWED_X_AXIS[0]
-                                # Set default y_axis based on file type and available columns
-                                if file_ext == ".csv" and 'cD2detailpeak' in allowed_y_axis:
-                                    default_y = 'cD2detailpeak'
-                                else:
+                                if file_ext == ".csv":
+                                    preferred_y_columns = ['Throttle (%)', 'cD2detailpeak', 'throttle']
+                                    for preferred_col in preferred_y_columns:
+                                        if preferred_col in allowed_y_axis:
+                                            default_y = preferred_col
+                                            break
+                                    else:
+                                        default_y = allowed_y_axis[1] if len(allowed_y_axis) > 1 else (allowed_y_axis[0] if allowed_y_axis else None)
+                                # Ensure default_y is always defined
+                                if 'default_y' not in locals() or default_y is None:
                                     default_y = allowed_y_axis[0] if allowed_y_axis else None
                                 # Parameter controls
                                 with param_col:
@@ -2141,10 +2181,15 @@ if st.session_state.current_page == 'home':
                 else:
                     default_x = 'Index' if 'Index' in x_axis_options else x_axis_options[0]
                 if b_df is not None and v_df is not None and hasattr(b_df, 'columns') and hasattr(v_df, 'columns'):
-                    if 'cD2detailpeak' in b_df.columns and 'cD2detailpeak' in v_df.columns:
-                        default_y = 'cD2detailpeak' if default_x == 'Index' else (y_axis_options[0] if y_axis_options else None)
-                    else:
-                        default_y = y_axis_options[0] if y_axis_options else None
+                    is_csv_data = any(col in b_df.columns for col in ['Throttle (%)', 'cD2detailpeak', 'throttle'])
+                    if is_csv_data:
+                        preferred_y_columns = ['Throttle (%)', 'cD2detailpeak', 'throttle', 'throttle_percent']
+                        for preferred_col in preferred_y_columns:
+                            if preferred_col in y_axis_options:
+                                default_y = preferred_col
+                                break
+                        else:
+                            default_y = y_axis_options[1] if y_axis_options else None
                 else:
                     default_y = y_axis_options[0] if y_axis_options else None
             metrics_col, param_col = st.columns([0.8, 0.2])
@@ -2361,8 +2406,9 @@ if st.session_state.current_page == 'home':
                             similarity_index = similarity * 100
                             merged["Difference"] = merged['target'] - merged['benchmark']
                             merged["Z_Score"] = (merged["Difference"] - merged["Difference"].mean()) / merged["Difference"].std()
+                            merged = merged.reset_index(drop=True)
                             abnormal_mask = abs(merged["Z_Score"]) > z_threshold
-                            abnormal_points = v_filtered[abnormal_mask]
+                            abnormal_points = merged[abnormal_mask]
                             abnormal_count = int(abnormal_mask.sum())
                             # --- Plot Visualization heading and Plot Mode selector in one row ---
                             heading_col, mode_col = st.columns([0.7, 0.3])
@@ -2515,7 +2561,6 @@ if (st.session_state.get('analysis_type') == 'Comparative Analysis' and len(st.s
         st.session_state.show_upload_area = True
         st.rerun()
     st.markdown("</div>", unsafe_allow_html=True)
-
 
 # mem = psutil.virtual_memory()
 # cpu = psutil.cpu_percent(interval=1)
