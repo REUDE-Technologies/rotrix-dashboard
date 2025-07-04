@@ -1,4 +1,4 @@
-#Modified script to support both single file analysis and comparative assessment modes
+# type: ignore #Modified script to support both single file analysis and comparative assessment modes
 
 
 import streamlit as st
@@ -32,53 +32,6 @@ class UploadedGitHubFile:
         return self.file.seek(*args, **kwargs)
 
 st.set_page_config(page_title="ROTRIX Dashboard", layout="wide")
-
-# Helper functions for data handling
-def safe_get_range(df, column):
-    """Safely get min and max values for a DataFrame column."""
-    if not isinstance(df, pd.DataFrame) or column not in df.columns:
-        return 0, 0
-    try:
-        series = df[column]
-        if not pd.api.types.is_numeric_dtype(series):
-            return 0, 0
-        return float(series.min()), float(series.max())
-    except:
-        return 0, 0
-
-def clean_dataframe(df):
-    """Remove columns with all null values or no variation in data."""
-    if df is None or not isinstance(df, pd.DataFrame):
-        return df
-        
-    # Create a copy to avoid modifying the original
-    df_cleaned = df.copy()
-    
-    # Remove columns with all null values
-    null_columns = df_cleaned.columns[df_cleaned.isna().all()].tolist()
-    if null_columns:
-        df_cleaned = df_cleaned.drop(columns=null_columns)
-    
-    # Remove columns with constant values (no variation)
-    constant_columns = df_cleaned.columns[df_cleaned.nunique() == 1].tolist()
-    if constant_columns:
-        df_cleaned = df_cleaned.drop(columns=constant_columns)
-    
-    return df_cleaned
-
-def get_plot_ranges(b_df, v_df, x_axis, y_axis):
-    """Get plot ranges for both DataFrames."""
-    b_x_min, b_x_max = safe_get_range(b_df, x_axis)
-    v_x_min, v_x_max = safe_get_range(v_df, x_axis)
-    b_y_min, b_y_max = safe_get_range(b_df, y_axis)
-    v_y_min, v_y_max = safe_get_range(v_df, y_axis)
-    
-    return (
-        min(b_x_min, v_x_min),
-        max(b_x_max, v_x_max),
-        min(b_y_min, v_y_min),
-        max(b_y_max, v_y_max)
-    )
 
 def get_numeric_columns(df):
     """Safely get numeric columns from a DataFrame."""
@@ -250,6 +203,8 @@ if 'file_share_mode' not in st.session_state:
     st.session_state.file_share_mode = {}
 if "share_all_mode" not in st.session_state:
     st.session_state.share_all_mode = False
+if "comparative_plot_mode" not in st.session_state:
+    st.session_state.comparative_plot_mode = "Superimposed"
 
 # Initialize global variables
 b_df = None
@@ -1408,7 +1363,8 @@ if st.session_state.current_page == 'home':
                         "x_axis_comparative", "y_axis_comparative",
                         "x_min_comparative", "x_max_comparative",
                         "y_min_comparative", "y_max_comparative",
-                        "x_min_comparative_mmss", "x_max_comparative_mmss"
+                        "x_min_comparative_mmss", "x_max_comparative_mmss",
+                        "z-slider-comparative"
                     ]
                     for param in param_list:
                         swap_param = param + "_swap"
@@ -1420,6 +1376,28 @@ if st.session_state.current_page == 'home':
                             st.session_state[param], st.session_state[swap_param] = (
                                 st.session_state[swap_param], st.session_state[param]
                             )
+                    # Preserve plot mode selection
+                    if 'comparative_plot_mode' in st.session_state:
+                        st.session_state['comparative_plot_mode'] = st.session_state['comparative_plot_mode']
+                    if 'previous_plot_mode' in st.session_state:
+                        st.session_state['previous_plot_mode'] = st.session_state['comparative_plot_mode']
+                    b_df = st.session_state.get("b_df")
+                    v_df = st.session_state.get("v_df")
+                    x_axis = st.session_state.get("x_axis_comparative", "timestamp_seconds")
+                    if x_axis == 'timestamp_seconds':
+                        # Get new min/max from swapped dataframes
+                        x_min_val, x_max_val = 0.0, 1.0
+                        if b_df is not None and v_df is not None and x_axis in b_df.columns and x_axis in v_df.columns:
+                            x_min_val = min(b_df[x_axis].min(), v_df[x_axis].min())
+                            x_max_val = max(b_df[x_axis].max(), v_df[x_axis].max())
+                        elif b_df is not None and x_axis in b_df.columns:
+                            x_min_val = b_df[x_axis].min()
+                            x_max_val = b_df[x_axis].max()
+                        elif v_df is not None and x_axis in v_df.columns:
+                            x_min_val = v_df[x_axis].min()
+                            x_max_val = v_df[x_axis].max()
+                        st.session_state['x_min_comparative_mmss'] = seconds_to_mmss(x_min_val)
+                        st.session_state['x_max_comparative_mmss'] = seconds_to_mmss(x_max_val)
                     st.rerun()
 
             with col2:
@@ -1442,6 +1420,20 @@ if st.session_state.current_page == 'home':
                         st.session_state.last_target_file = target_file
                     except Exception as e:
                         st.error("Error loading target file")
+            missing = []
+            if st.session_state.benchmark_file_selection == "None":
+                missing.append("Benchmark")
+            if st.session_state.target_file_selection == "None":
+                missing.append("Target")
+            if missing:
+                st.session_state['selected_bench'] = None
+                st.session_state['selected_val'] = None
+                st.session_state['selected_bench_content'] = None
+                st.session_state['selected_val_content'] = None
+                st.session_state['b_df'] = None
+                st.session_state['v_df'] = None
+                st.info(f"📋 Please upload and select the missing file(s): {', '.join(missing)} to begin Comparative Analysis.")
+                st.stop()
 
             # If both files are .ulg, show topic selection in the same row
             if benchmark_file != "None" and target_file != "None" and \
@@ -1584,13 +1576,13 @@ if st.session_state.current_page == 'home':
                                 else:
                                     default_x = 'Index' if 'Index' in ALLOWED_X_AXIS else ALLOWED_X_AXIS[0]
                                 if file_ext == ".csv":
-                                    preferred_y_columns = ['Throttle (%)', 'cD2detailpeak', 'throttle']
+                                    preferred_y_columns = ['Thrust (kgf)', 'cD2detailpeak', 'Thrust']
                                     for preferred_col in preferred_y_columns:
                                         if preferred_col in allowed_y_axis:
                                             default_y = preferred_col
                                             break
                                     else:
-                                        default_y = allowed_y_axis[1] if len(allowed_y_axis) > 1 else (allowed_y_axis[0] if allowed_y_axis else None)
+                                        default_y = allowed_y_axis[7] if len(allowed_y_axis) > 1 else (allowed_y_axis[0] if allowed_y_axis else None)
                                 # Ensure default_y is always defined
                                 if 'default_y' not in locals() or default_y is None:
                                     default_y = allowed_y_axis[0] if allowed_y_axis else None
@@ -1608,7 +1600,7 @@ if st.session_state.current_page == 'home':
                                     z_threshold = st.slider("Z-Score Threshold", 1.0, 5.0, 3.0, 0.01, key="z-slider-single")
                                     st.markdown(f"<span style='font-size:1.05rem; color:#444; font-weight:500;'>{'Time' if x_axis == 'timestamp_seconds' else x_axis}</span>", unsafe_allow_html=True)
 
-                                    x_min_col, x_max_col, x_reset_col = st.columns([5, 5, 2])
+                                    x_min_col, x_max_col, x_reset_col = st.columns([6, 6, 2])
                                     with x_min_col:
                                         if x_axis == 'timestamp_seconds':
                                             # Convert seconds to MM:SS format for display
@@ -1638,7 +1630,7 @@ if st.session_state.current_page == 'home':
                                         st.button("↺", key="reset_x_single", help="Reset X-axis range", on_click=reset_x_single_callback, args=(df, x_axis))
 
                                     st.markdown(f"<span style='font-size:1.05rem; color:#444; font-weight:500;'>{y_axis}</span>", unsafe_allow_html=True)
-                                    y_min_col, y_max_col, y_reset_col = st.columns([5, 5, 2])
+                                    y_min_col, y_max_col, y_reset_col = st.columns([6, 6, 2])
                                     with y_min_col:
                                         y_min = st.number_input("Start", value=float(df[y_axis].min()) if y_axis else 0.0, format="%.2f", key="y_min_single", step=1.0)
                                     with y_max_col:
@@ -1760,6 +1752,33 @@ if st.session_state.current_page == 'home':
                                             )
                                         )
                                         st.plotly_chart(fig, use_container_width=True)
+                                        
+                                        # --- Abnormal Points Table ---
+                                        if not abnormal_points.empty:
+                                            st.markdown("### ⚠️ Abnormal Points Data")
+                                            # Create a simple table with key columns
+                                            table_cols = []
+                                            if 'Index' in abnormal_points.columns:
+                                                table_cols.append('Index')
+                                            if 'timestamp_seconds' in abnormal_points.columns:
+                                                table_cols.append('timestamp_seconds')
+                                            if x_axis not in table_cols:
+                                                table_cols.append(x_axis)
+                                            if y_axis not in table_cols:
+                                                table_cols.append(y_axis)
+                                            
+                                            # Add Z-Score if available
+                                            if 'Z_Score' in abnormal_points.columns:
+                                                table_cols.append('Z_Score')
+                                            
+                                            # Limit to first 8 columns for readability
+                                            table_cols = table_cols[:8]
+                                            
+                                            st.dataframe(
+                                                abnormal_points[table_cols].round(4),
+                                                use_container_width=True,
+                                                height=200
+                                            )
                 
                         with tab2:
                             # Create a 20-80 split layout
@@ -2181,9 +2200,9 @@ if st.session_state.current_page == 'home':
                 else:
                     default_x = 'Index' if 'Index' in x_axis_options else x_axis_options[0]
                 if b_df is not None and v_df is not None and hasattr(b_df, 'columns') and hasattr(v_df, 'columns'):
-                    is_csv_data = any(col in b_df.columns for col in ['Throttle (%)', 'cD2detailpeak', 'throttle'])
+                    is_csv_data = any(col in b_df.columns for col in ['Thrust (kgf)', 'cD2detailpeak', 'Thrust'])
                     if is_csv_data:
-                        preferred_y_columns = ['Throttle (%)', 'cD2detailpeak', 'throttle', 'throttle_percent']
+                        preferred_y_columns = ['Thrust (kgf)', 'cD2detailpeak', 'Thrust']
                         for preferred_col in preferred_y_columns:
                             if preferred_col in y_axis_options:
                                 default_y = preferred_col
@@ -2226,7 +2245,7 @@ if st.session_state.current_page == 'home':
                         y_min_val, y_max_val = (v_df[y_axis].min(), v_df[y_axis].max())
 
                 st.markdown(f"<span style='font-size:1.05rem; color:#444; font-weight:500;'>{'Time' if x_axis == 'timestamp_seconds' else x_axis}</span>", unsafe_allow_html=True)
-                x_min_col, x_max_col, x_reset_col = st.columns([5, 5, 2])
+                x_min_col, x_max_col, x_reset_col = st.columns([6, 6, 2])
                 with x_min_col:
                     if x_axis == 'timestamp_seconds':
                         x_min_mmss = seconds_to_mmss(x_min_val)
@@ -2254,7 +2273,7 @@ if st.session_state.current_page == 'home':
                         st.rerun()
 
                 st.markdown(f"<span style='font-size:1.05rem; color:#444; font-weight:500;'>{y_axis}</span>", unsafe_allow_html=True)
-                y_min_col, y_max_col, y_reset_col = st.columns([5, 5, 2])
+                y_min_col, y_max_col, y_reset_col = st.columns([6, 6, 2])
                 with y_min_col:
                     y_min = st.number_input("Start", value=float(y_min_val), format="%.2f", key="y_min_comparative", step=1.0)
                 with y_max_col:
@@ -2281,15 +2300,25 @@ if st.session_state.current_page == 'home':
                             
                             if len(b_filtered) > 0 and len(v_filtered) > 0:
                                 merged = pd.DataFrame()
-                                merged['benchmark'] = b_filtered[y_axis]
-                                merged['target'] = v_filtered[y_axis]
+                                merged['benchmark'] = b_filtered[y_axis].reset_index(drop=True)
+                                merged['target'] = v_filtered[y_axis].reset_index(drop=True)
+                                merged['benchmark_x'] = b_filtered[x_axis].reset_index(drop=True)
+                                merged['target_x'] = v_filtered[x_axis].reset_index(drop=True)
+                                merged['abs_diff'] = abs(merged['target'] - merged['benchmark'])
+                                merged['rel_diff'] = merged['abs_diff'] / (abs(merged['benchmark']) + 1e-10)
+                                window = min(50, max(20, len(merged) // 10))
+                                merged['rolling_mean'] = merged['abs_diff'].rolling(window=window, center=True).mean()
+                                merged['rolling_std'] = merged['abs_diff'].rolling(window=window, center=True).std()
                                 rmse = np.sqrt(np.mean((merged['target'] - merged['benchmark']) ** 2))
-                                bench_range = merged['benchmark'].max() - merged['benchmark'].min()
-                                similarity = 1 - (rmse / bench_range) if bench_range != 0 else (1.0 if rmse == 0 else 0.0)
+                                # Use combined range of both datasets for symmetric similarity calculation
+                                combined_range = max(merged['benchmark'].max(), merged['target'].max()) - min(merged['benchmark'].min(), merged['target'].min())
+                                similarity = 1 - (rmse / combined_range) if combined_range != 0 else (1.0 if rmse == 0 else 0.0)
                                 similarity_index = similarity * 100
                                 merged["Difference"] = merged['target'] - merged['benchmark']
                                 merged["Z_Score"] = (merged["Difference"] - merged["Difference"].mean()) / merged["Difference"].std()
+                                merged = merged.reset_index(drop=True)
                                 abnormal_mask = abs(merged["Z_Score"]) > z_threshold
+                                abnormal_points = merged[abnormal_mask]
                                 abnormal_count = int(abnormal_mask.sum())
                                 metrics_ready = True
                             else:
@@ -2393,16 +2422,19 @@ if st.session_state.current_page == 'home':
                             if x_axis == 'timestamp_seconds':
                                 b_filtered, v_filtered, common_time = resample_to_common_time(b_filtered, v_filtered)
                             merged = pd.DataFrame()
-                            merged['benchmark'] = b_filtered[y_axis]
-                            merged['target'] = v_filtered[y_axis]
+                            merged['benchmark'] = b_filtered[y_axis].reset_index(drop=True)
+                            merged['target'] = v_filtered[y_axis].reset_index(drop=True)
+                            merged['benchmark_x'] = b_filtered[x_axis].reset_index(drop=True)
+                            merged['target_x'] = v_filtered[x_axis].reset_index(drop=True)
                             merged['abs_diff'] = abs(merged['target'] - merged['benchmark'])
                             merged['rel_diff'] = merged['abs_diff'] / (abs(merged['benchmark']) + 1e-10)
                             window = min(50, max(20, len(merged) // 10))
                             merged['rolling_mean'] = merged['abs_diff'].rolling(window=window, center=True).mean()
                             merged['rolling_std'] = merged['abs_diff'].rolling(window=window, center=True).std()
                             rmse = np.sqrt(np.mean((merged['target'] - merged['benchmark']) ** 2))
-                            bench_range = merged['benchmark'].max() - merged['benchmark'].min()
-                            similarity = 1 - (rmse / bench_range) if bench_range != 0 else (1.0 if rmse == 0 else 0.0)
+                            # Use combined range of both datasets for symmetric similarity calculation
+                            combined_range = max(merged['benchmark'].max(), merged['target'].max()) - min(merged['benchmark'].min(), merged['target'].min())
+                            similarity = 1 - (rmse / combined_range) if combined_range != 0 else (1.0 if rmse == 0 else 0.0)
                             similarity_index = similarity * 100
                             merged["Difference"] = merged['target'] - merged['benchmark']
                             merged["Z_Score"] = (merged["Difference"] - merged["Difference"].mean()) / merged["Difference"].std()
@@ -2415,7 +2447,18 @@ if st.session_state.current_page == 'home':
                             with heading_col:
                                 st.markdown("### 🧮 Plot Visualization")
                             with mode_col:
-                                plot_mode = st.radio("Plot Mode", ["Superimposed", "Separate"], horizontal=True, key="comparative_plot_mode")
+                                # Plot mode selection and rerun logic
+                                if 'previous_plot_mode' not in st.session_state:
+                                    st.session_state['previous_plot_mode'] = 'Superimposed'
+                                plot_mode = st.radio(
+                                    "Plot Mode",
+                                    ["Superimposed", "Separate"],
+                                    horizontal=True,
+                                    key="comparative_plot_mode"
+                                )
+                                if plot_mode != st.session_state['previous_plot_mode']:
+                                    st.session_state['previous_plot_mode'] = plot_mode
+                                    st.rerun()
                             plot_container = st.container()
                             with plot_container:
                                 if plot_mode == "Superimposed":
@@ -2436,11 +2479,20 @@ if st.session_state.current_page == 'home':
                                     if not abnormal_points.empty:
                                         fig.add_trace(
                                             go.Scatter(
-                                                x=abnormal_points[x_axis], 
-                                                y=abnormal_points[y_axis], 
-                                                mode='markers', 
-                                                marker=dict(color='red', size=8), 
-                                                name='Abnormal Points'
+                                                x=abnormal_points['benchmark_x'],
+                                                y=abnormal_points['benchmark'],
+                                                mode='markers',
+                                                marker=dict(color='red', size=8),
+                                                name='Abnormal Points (Benchmark)'
+                                            )
+                                        )
+                                        fig.add_trace(
+                                            go.Scatter(
+                                                x=abnormal_points['target_x'],
+                                                y=abnormal_points['target'],
+                                                mode='markers',
+                                                marker=dict(color='orange', size=8),
+                                                name='Abnormal Points (Target)'
                                             )
                                         )
                                     if x_axis == 'timestamp_seconds':
@@ -2471,7 +2523,21 @@ if st.session_state.current_page == 'home':
                                         )
                                     )
                                     st.plotly_chart(fig, use_container_width=True)
-                                else:  # Separate plots
+                                    # Add abnormal points table below the plot
+                                    if not abnormal_points.empty:
+                                        st.markdown("### ⚠️ Abnormal Points Data")
+                                        # Only show the target X-axis value, with the X-axis name as the column header
+                                        table_cols = ['target_x', 'benchmark', 'target', 'Difference', 'Z_Score']
+                                        table_cols = [col for col in table_cols if col in abnormal_points.columns]
+                                        display_df = abnormal_points[table_cols].copy()
+                                        if 'target_x' in display_df.columns:
+                                            display_df = display_df.rename(columns={'target_x': x_axis})
+                                        st.dataframe(
+                                            display_df.round(4),
+                                            use_container_width=True,
+                                            height=250
+                                        )
+                                elif plot_mode == "Separate":
                                     fig = make_subplots(rows=2, cols=1, 
                                                     shared_xaxes=True, 
                                                     subplot_titles=None,  
@@ -2494,11 +2560,20 @@ if st.session_state.current_page == 'home':
                                     if not abnormal_points.empty:
                                         fig.add_trace(
                                             go.Scatter(
-                                                x=abnormal_points[x_axis],
-                                                y=abnormal_points[y_axis],
+                                                x=abnormal_points['benchmark_x'],
+                                                y=abnormal_points['benchmark'],
                                                 mode='markers',
                                                 marker=dict(color='red', size=8),
-                                                name='Abnormal Points'
+                                                name='Abnormal Points (Benchmark)'
+                                            ), row=1, col=1
+                                        )
+                                        fig.add_trace(
+                                            go.Scatter(
+                                                x=abnormal_points['target_x'],
+                                                y=abnormal_points['target'],
+                                                mode='markers',
+                                                marker=dict(color='orange', size=8),
+                                                name='Abnormal Points (Target)'
                                             ), row=2, col=1
                                         )
                                     if x_axis == 'timestamp_seconds':
@@ -2542,6 +2617,20 @@ if st.session_state.current_page == 'home':
                                     fig.update_yaxes(title_text=y_axis, row=1, col=1)
                                     fig.update_yaxes(title_text=y_axis, row=2, col=1)
                                     st.plotly_chart(fig, use_container_width=True)
+                                    # Add abnormal points table below the plot
+                                    if not abnormal_points.empty:
+                                        st.markdown("### ⚠️ Abnormal Points Data")
+                                        # Only show the target X-axis value, with the X-axis name as the column header
+                                        table_cols = ['target_x', 'benchmark', 'target', 'Difference', 'Z_Score']
+                                        table_cols = [col for col in table_cols if col in abnormal_points.columns]
+                                        display_df = abnormal_points[table_cols].copy()
+                                        if 'target_x' in display_df.columns:
+                                            display_df = display_df.rename(columns={'target_x': x_axis})
+                                        st.dataframe(
+                                            display_df.round(4),
+                                            use_container_width=True,
+                                            height=250
+                                        )
                         except Exception as e:
                             st.error(f"Error during plotting: {str(e)}")
     else:
