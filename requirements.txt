@@ -10,3 +10,5 @@ scipy
 watchdog
 openpyxl
 psutil
+opencv-python-headless
+ultralytics
