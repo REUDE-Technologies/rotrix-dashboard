@@ -1,4 +1,4 @@
-# type: ignore #Modified script to support both single file analysis and comparative assessment modes
+#Modified script to support both single file analysis and comparative assessment modes
 
 
 import streamlit as st
@@ -19,6 +19,7 @@ import requests
 import psutil
 import csv
 import io
+from datetime import datetime
 
 class UploadedGitHubFile:
     def __init__(self, content, name, filetype): 
@@ -227,17 +228,15 @@ def load_csv(file):
         with open(file, 'r', encoding='utf-8') as f:
             lines = [next(f) for _ in range(10)]
         file_obj = file
-        is_path = True
     else:
         file.seek(0)
         lines = [file.readline().decode('utf-8') for _ in range(10)]
         file.seek(0)
         file_obj = file
-        is_path = False
     # Find the header row index
     header_row = None
     for i, line in enumerate(lines):
-        if "TestrecordId" in line or "Timestamp" in line or "Speedmms" in line:
+        if "TestrecordId" in line or "Timestamp (hh:mm:ss)" in line or "Speedmms" in line:
             header_row = i
             break
     if header_row is None:
@@ -374,13 +373,44 @@ def resample_to_common_time(df1, df2, freq=1.0):
         st.error(f"Error during resampling: {str(e)}")
         return df1.copy(), df2.copy(), []
 
+def add_hhmmss_seconds_column(df, timestamp_col='Timestamp (hh:mm:ss)'):
+    def hhmmss_to_seconds(ts):
+        try:
+            if pd.isnull(ts):
+                return None
+            ts = str(ts).strip()
+            # Try parsing with AM/PM
+            try:
+                dt = datetime.strptime(ts, "%I:%M:%S %p")
+            except ValueError:
+                try:
+                    dt = datetime.strptime(ts, "%H:%M:%S")
+                except ValueError:
+                    print(f"DEBUG: Unrecognized timestamp format: '{ts}'")
+                    return None
+            return dt.hour * 3600 + dt.minute * 60 + dt.second
+        except Exception as e:
+            print(f"DEBUG: Error parsing timestamp '{ts}': {e}")
+            return None
+    abs_seconds = df[timestamp_col].apply(hhmmss_to_seconds)
+    if abs_seconds.isnull().all():
+        print("DEBUG: All values in timestamp_seconds are None. Check the format of your timestamp column!")
+    if not abs_seconds.isnull().all():
+        elapsed_seconds = abs_seconds - abs_seconds.iloc[0]
+        df['timestamp_seconds'] = elapsed_seconds.astype('Int64')
+    else:
+        df['timestamp_seconds'] = abs_seconds
+    return df
+
 def load_data(file, filetype, key_suffix):
     """Load data from file and ensure proper timestamp handling."""
     try:
         if filetype == ".csv":
             df_csv = load_csv(file)
             if df_csv is not None and not df_csv.empty:
-                df_csv = convert_timestamps_to_seconds(df_csv)
+                # Use MM:SS extraction for timestamp_seconds
+                if 'Timestamp (hh:mm:ss)' in df_csv.columns:
+                    df_csv = add_hhmmss_seconds_column(df_csv, 'Timestamp (hh:mm:ss)')
                 df_csv = ensure_seconds_column(df_csv)
             return df_csv, None
         elif filetype == ".ulg":
@@ -2251,22 +2281,26 @@ if st.session_state.current_page == 'home':
                         x_min_mmss = seconds_to_mmss(x_min_val)
                         if 'x_min_comparative_mmss' not in st.session_state:
                             st.session_state['x_min_comparative_mmss'] = x_min_mmss
-                        x_min_input = st.text_input("Start", key='x_min_comparative_mmss')
+                        x_min_input = st.text_input("Start", value=st.session_state['x_min_comparative_mmss'], key='x_min_comparative_mmss')
                         x_min = mmss_to_seconds(x_min_input)
                     else:
-                        x_min = st.number_input("Start", value=float(x_min_val), format="%.2f", key="x_min_comparative", step=1.0)
+                        if 'x_min_comparative' not in st.session_state:
+                            st.session_state['x_min_comparative'] = float(x_min_val)
+                        x_min = st.number_input("Start", value=st.session_state['x_min_comparative'], format="%.2f", key="x_min_comparative", step=1.0)
                 with x_max_col:
                     if x_axis == 'timestamp_seconds':
                         x_max_mmss = seconds_to_mmss(x_max_val)
                         if 'x_max_comparative_mmss' not in st.session_state:
                             st.session_state['x_max_comparative_mmss'] = x_max_mmss
-                        x_max_input = st.text_input("End", key='x_max_comparative_mmss')
+                        x_max_input = st.text_input("End", value=st.session_state['x_max_comparative_mmss'], key='x_max_comparative_mmss')
                         x_max = mmss_to_seconds(x_max_input)
                     else:
-                        x_max = st.number_input("End", value=float(x_max_val), format="%.2f", key="x_max_comparative", step=1.0)
+                        if 'x_max_comparative' not in st.session_state:
+                            st.session_state['x_max_comparative'] = float(x_max_val)
+                        x_max = st.number_input("End", value=st.session_state['x_max_comparative'], format="%.2f", key="x_max_comparative", step=1.0)
                 with x_reset_col:
                     st.markdown('<div style="margin-top: 28px;"></div>', unsafe_allow_html=True)
-                    if st.button("↺", key="reset_x_comparative", help="Reset X-axis range"):
+                    if st.button("↺", key="reset_x_comparative", help="Reset X-axis range", on_click=reset_x_comparative_callback, args=(b_df, x_axis)):
                         for k in ['x_min_comparative', 'x_max_comparative', 'x_min_comparative_mmss', 'x_max_comparative_mmss']:
                             if k in st.session_state:
                                 del st.session_state[k]
@@ -2275,12 +2309,16 @@ if st.session_state.current_page == 'home':
                 st.markdown(f"<span style='font-size:1.05rem; color:#444; font-weight:500;'>{y_axis}</span>", unsafe_allow_html=True)
                 y_min_col, y_max_col, y_reset_col = st.columns([6, 6, 2])
                 with y_min_col:
-                    y_min = st.number_input("Start", value=float(y_min_val), format="%.2f", key="y_min_comparative", step=1.0)
+                    if 'y_min_comparative' not in st.session_state:
+                        st.session_state['y_min_comparative'] = float(y_min_val)
+                    y_min = st.number_input("Start", value=st.session_state['y_min_comparative'], format="%.2f", key="y_min_comparative", step=1.0)
                 with y_max_col:
-                    y_max = st.number_input("End", value=float(y_max_val), format="%.2f", key="y_max_comparative", step=1.0)
+                    if 'y_max_comparative' not in st.session_state:
+                        st.session_state['y_max_comparative'] = float(y_max_val)
+                    y_max = st.number_input("End", value=st.session_state['y_max_comparative'], format="%.2f", key="y_max_comparative", step=1.0)
                 with y_reset_col:
                     st.markdown('<div style="margin-top: 28px;"></div>', unsafe_allow_html=True)
-                    if st.button("↺", key="reset_y_comparative", help="Reset Y-axis range"):
+                    if st.button("↺", key="reset_y_comparative", help="Reset Y-axis range", on_click=reset_y_comparative_callback, args=(b_df, y_axis)):
                         for k in ['y_min_comparative', 'y_max_comparative']:
                             if k in st.session_state:
                                 del st.session_state[k]
