@@ -2250,8 +2250,51 @@ if st.session_state.current_page == 'home':
                 </div>
                 """, unsafe_allow_html=True)
 
+                prev_x_axis = st.session_state.get('prev_x_axis_comparative', None)
+                prev_y_axis = st.session_state.get('prev_y_axis_comparative', None)
+
                 x_axis = st.selectbox("X-Axis", x_axis_options, key="x_axis_comparative", index=x_axis_options.index(str(default_x)) if isinstance(default_x, str) and default_x in x_axis_options else 0)
                 y_axis = st.selectbox("Y-Axis", y_axis_options, key="y_axis_comparative", index=y_axis_options.index(str(default_y)) if isinstance(default_y, str) and default_y in y_axis_options else 0)
+
+                if 'last_x_axis_comparative' not in st.session_state or st.session_state['last_x_axis_comparative'] != x_axis:
+                    if x_axis == 'timestamp_seconds':
+                        if b_df is not None and x_axis in b_df.columns:
+                            x_min_val = float(b_df[x_axis].min())
+                            x_max_val = float(b_df[x_axis].max())
+                        elif v_df is not None and x_axis in v_df.columns:
+                            x_min_val = float(v_df[x_axis].min())
+                            x_max_val = float(v_df[x_axis].max())
+                        else:
+                            x_min_val, x_max_val = 0.0, 1.0
+                        st.session_state['x_min_comparative_mmss'] = seconds_to_mmss(x_min_val)
+                        st.session_state['x_max_comparative_mmss'] = seconds_to_mmss(x_max_val)
+                    else:
+                        if b_df is not None and x_axis in b_df.columns:
+                            x_min_val = float(b_df[x_axis].min())
+                            x_max_val = float(b_df[x_axis].max())
+                        elif v_df is not None and x_axis in v_df.columns:
+                            x_min_val = float(v_df[x_axis].min())
+                            x_max_val = float(v_df[x_axis].max())
+                        else:
+                            x_min_val, x_max_val = 0.0, 1.0
+                        st.session_state['x_min_comparative'] = x_min_val
+                        st.session_state['x_max_comparative'] = x_max_val
+                    st.session_state['last_x_axis_comparative'] = x_axis
+                if 'last_y_axis_comparative' not in st.session_state or st.session_state['last_y_axis_comparative'] != y_axis:
+                    if b_df is not None and y_axis in b_df.columns:
+                        y_min_val = float(b_df[y_axis].min())
+                        y_max_val = float(b_df[y_axis].max())
+                    elif v_df is not None and y_axis in v_df.columns:
+                        y_min_val = float(v_df[y_axis].min())
+                        y_max_val = float(v_df[y_axis].max())
+                    else:
+                        y_min_val, y_max_val = 0.0, 1.0
+                    st.session_state['y_min_comparative'] = y_min_val
+                    st.session_state['y_max_comparative'] = y_max_val
+                    st.session_state['last_y_axis_comparative'] = y_axis
+
+                st.session_state['prev_x_axis_comparative'] = x_axis
+                st.session_state['prev_y_axis_comparative'] = y_axis
 
                 z_threshold = st.slider("Z-Score Threshold", 1.0, 5.0, 3.0, 0.01, key="z-slider-comparative")
                 
