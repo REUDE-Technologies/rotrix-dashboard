@@ -8,7 +8,6 @@ import os
 import time
 
 
-# Page configuration
 st.set_page_config(
     page_title="Video Detection Dashboard",
     page_icon="🎥",
@@ -114,11 +113,15 @@ def process_frame(frame: np.ndarray, model: YOLO, detect_objects: bool, detect_p
         label = names[int(detections.cls[i])]
         confidence = float(detections.conf[i])
         
-        if detect_objects and label != "person":
-            continue
+        # Filtering logic: match v8n.py flexibility
         if detect_persons and label != "person":
-            continue
-            
+            continue  # Only show people if 'Person Only Mode' is ON
+        if not detect_persons and not detect_objects:
+            pass  # If both are off, show all objects
+        elif detect_objects and not detect_persons:
+            pass  # Show all objects
+        # If both are ON, show only people (Person Only Mode takes precedence)
+        
         box = detections.xyxy[i].cpu().numpy().astype(int)
         xmin, ymin, xmax, ymax = box
         xmin = int(xmin * w_ratio)
@@ -130,6 +133,7 @@ def process_frame(frame: np.ndarray, model: YOLO, detect_objects: bool, detect_p
         bbox_center = ((xmin + xmax) // 2, (ymin + ymax) // 2)
         matched = False
         person_label = label
+        gender = age = "-"
         
         if label == 'person':
             # Person tracking logic
@@ -142,11 +146,9 @@ def process_frame(frame: np.ndarray, model: YOLO, detect_objects: bool, detect_p
                 person_label = f'person{st.session_state.person_counter}'
                 st.session_state.person_registry.append((st.session_state.person_counter, bbox_center))
                 st.session_state.person_counter += 1
-            
             # Age and gender detection
-            gender, age = "-", "-"
             roi = frame[ymin:ymax, xmin:xmax]
-            if roi.size > 0 and (detect_gender or detect_age):
+            if roi.size > 0:
                 if person_label in st.session_state.age_gender_cache:
                     gender, age = st.session_state.age_gender_cache[person_label]
                 else:
@@ -165,21 +167,16 @@ def process_frame(frame: np.ndarray, model: YOLO, detect_objects: bool, detect_p
                         st.session_state.age_gender_cache[person_label] = (gender, age)
                     except Exception as e:
                         gender, age = "?", "?"
-        else:
-            gender = age = "-"
-            
         # Draw bounding box and label
         color = (255, 200, 0) if label == 'person' else (0, 255, 0)
         cv2.rectangle(frame, (xmin, ymin), (xmax, ymax), color, 2, lineType=cv2.LINE_AA)
-        
         label_display = f"{person_label if label == 'person' else label}"
-        if detect_gender and gender != "-":
-            label_display += f" | G: {gender}"
-        if detect_age and age != "-":
-            label_display += f" | A: {age}"
-        
+        if label == 'person':
+            if detect_gender and gender != "-":
+                label_display += f" | G: {gender}"
+            if detect_age and age != "-":
+                label_display += f" | A: {age}"
         draw_label(frame, label_display, xmin, ymin, color)
-        
         # Store detection data
         detection_data.append({
             'class': person_label if label == 'person' else label,
@@ -191,7 +188,6 @@ def process_frame(frame: np.ndarray, model: YOLO, detect_objects: bool, detect_p
             'width': width,
             'height': height
         })
-    
     return frame, detection_data
 
 def main():
@@ -216,8 +212,21 @@ def main():
     st.sidebar.markdown("### 🔍 Detection Options")
     detect_objects = st.sidebar.checkbox("Detect All Objects", value=True)
     detect_persons = st.sidebar.checkbox("Person Only Mode", value=False)
-    detect_gender = st.sidebar.checkbox("Gender Detection", value=False)
-    detect_age = st.sidebar.checkbox("Age Detection", value=False)
+    
+    # Check if Caffe models are available for age/gender detection
+    models_dir = "caffe_models"
+    models_available = os.path.exists(models_dir) and all(
+        os.path.exists(os.path.join(models_dir, f)) 
+        for f in ["deploy_gender.prototxt", "gender_net.caffemodel", "deploy_age.prototxt", "age_net.caffemodel"]
+    )
+    
+    if not models_available:
+        detect_gender = st.sidebar.checkbox("Gender Detection", value=False, disabled=True)
+        detect_age = st.sidebar.checkbox("Age Detection", value=False, disabled=True)
+        st.sidebar.info("💡 Enable age/gender detection by downloading models")
+    else:
+        detect_gender = st.sidebar.checkbox("Gender Detection", value=False)
+        detect_age = st.sidebar.checkbox("Age Detection", value=False)
     
     # Resize options
     st.sidebar.markdown("### 📐 Processing Options")
@@ -238,17 +247,43 @@ def main():
     gender_net = age_net = gender_list = age_list = None
     if detect_gender or detect_age:
         st.sidebar.markdown("### 👥 Age/Gender Models")
-        gender_proto = st.sidebar.text_input("Gender Prototxt Path", "deploy_gender.prototxt")
-        gender_model = st.sidebar.text_input("Gender Model Path", "gender_net.caffemodel")
-        age_proto = st.sidebar.text_input("Age Prototxt Path", "deploy_age.prototxt")
-        age_model = st.sidebar.text_input("Age Model Path", "age_net.caffemodel")
         
-        if st.sidebar.button("Load Age/Gender Models"):
-            gender_net, age_net, gender_list, age_list = load_caffe_models(
-                gender_proto, gender_model, age_proto, age_model
-            )
-            if gender_net is not None:
-                st.sidebar.success("Age/Gender models loaded successfully!")
+        # Check if models directory exists
+        models_dir = "caffe_models"
+        if not os.path.exists(models_dir):
+            st.sidebar.warning("⚠️ Caffe models not found!")
+            st.sidebar.info("📥 To enable age/gender detection, run: `python download_caffe_models.py`")
+            detect_gender = False
+            detect_age = False
+        else:
+            # Use default paths in caffe_models directory
+            gender_proto = f"{models_dir}/deploy_gender.prototxt"
+            gender_model = f"{models_dir}/gender_net.caffemodel"
+            age_proto = f"{models_dir}/deploy_age.prototxt"
+            age_model = f"{models_dir}/age_net.caffemodel"
+            
+            # Check if files exist
+            missing_files = []
+            for path in [gender_proto, gender_model, age_proto, age_model]:
+                if not os.path.exists(path):
+                    missing_files.append(os.path.basename(path))
+            
+            if missing_files:
+                st.sidebar.error(f"❌ Missing model files: {', '.join(missing_files)}")
+                st.sidebar.info("📥 Run: `python download_caffe_models.py` to download models")
+                detect_gender = False
+                detect_age = False
+            else:
+                try:
+                    gender_net = cv2.dnn.readNetFromCaffe(gender_proto, gender_model)
+                    age_net = cv2.dnn.readNetFromCaffe(age_proto, age_model)
+                    gender_list = ['Male', 'Female']
+                    age_list = ['(0-2)', '(4-6)', '(8-12)', '(15-20)', '(25-32)', '(38-43)', '(48-53)', '(60-100)']
+                    st.sidebar.success("✅ Age/Gender models loaded automatically!")
+                except Exception as e:
+                    st.sidebar.error(f"❌ Failed to load models: {e}")
+                    detect_gender = False
+                    detect_age = False
     
     # Main content area
     col1, col2 = st.columns([4, 1])
@@ -295,6 +330,14 @@ def main():
                             detect_gender, detect_age, gender_net, age_net,
                             gender_list, age_list, resize_dim
                         )
+                        
+                        # Debug info
+                        if detect_gender or detect_age:
+                            st.sidebar.markdown(f"**Debug:** Models loaded - Gender: {gender_net is not None}, Age: {age_net is not None}")
+                            if detections:
+                                for det in detections:
+                                    if 'person' in det['class']:
+                                        st.sidebar.markdown(f"**Person:** {det['gender']} | {det['age']}")
 
                         # Update detection results
                         if detections:
@@ -453,7 +496,7 @@ def main():
             
             # Recent detections
             st.markdown("### 🔍 Recent Detections")
-            recent_detections = st.session_state.detection_results[-10:]  # Last 10 detections
+            recent_detections = st.session_state.detection_results[-3:]  # Last 3 detections
             
             for detection in recent_detections:
                 st.markdown(f"""
