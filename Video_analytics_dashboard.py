@@ -344,7 +344,6 @@ def main():
                 # Create placeholder for video
                 video_placeholder = st.empty()
                 stats_placeholder = st.empty()
-                # Create stop button ONCE
                 stop = st.button("⏹️ Stop Detection", key="stop_webcam")
                 try:
                     while st.session_state.processing:
