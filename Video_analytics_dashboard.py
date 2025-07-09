@@ -113,7 +113,7 @@ def process_frame(frame: np.ndarray, model: YOLO, detect_objects: bool, detect_p
         label = names[int(detections.cls[i])]
         confidence = float(detections.conf[i])
         
-        # Filtering logic: match v8n.py flexibility
+        # Filtering logic:
         if detect_persons and label != "person":
             continue  # Only show people if 'Person Only Mode' is ON
         if not detect_persons and not detect_objects:
