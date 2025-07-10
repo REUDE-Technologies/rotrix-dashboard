@@ -808,8 +808,6 @@ if st.session_state.current_page == 'home':
 
         # Main upload container
         st.markdown("<h3 style='text-align: center; color: #2E86C1; margin-bottom: 30px;'>📁 File Management</h3>", unsafe_allow_html=True)
-        
-        # Main upload interface (removed tabs)
         st.markdown("<h4 style='margin-top: 0px; color: #495057;'>💾 File Upload & Management</h4>", unsafe_allow_html=True)
         github_col, upload_col = st.columns([1, 1])
         with github_col:
