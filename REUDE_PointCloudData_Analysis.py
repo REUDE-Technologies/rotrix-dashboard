@@ -13,10 +13,16 @@ import requests
 import zipfile
 
 # Function to load custom XYZ-like file using readlines
-def load_custom_xyz_file(path):
+def load_custom_xyz_file(file_or_path):
     try:
-        with open(path, 'r') as f:
-            lines = f.readlines()
+        # Handle file-like object (e.g., UploadedGitHubFile)
+        if hasattr(file_or_path, 'read'):
+            content = file_or_path.read().decode('utf-8')  # Read and decode content
+            lines = content.splitlines()  # Split into lines
+        # Handle file path
+        else:
+            with open(file_or_path, 'r') as f:
+                lines = f.readlines()
 
         # Filter out comment lines and empty lines
         data_lines = [line.strip() for line in lines if line.strip() and not line.startswith('#')]
@@ -37,17 +43,26 @@ def load_custom_xyz_file(path):
         raise ValueError(f"Failed to parse XYZ-like file: {e}")
 
 # Function to plot the PCD files as 2D (x, y) with z as color
-def plot_xyz_like_files(col, label, selected_files, x_axis, y_axis, x_min, x_max, y_min, y_max, sample_size, z_threshold):
+def plot_xyz_like_files(col, label, selected_files, x_axis, y_axis, x_min, x_max, y_min, y_max, z_threshold):
     col.markdown(f"### {label} Layers")
     for path in selected_files:
         try:
             df = load_custom_xyz_file(path)
 
-            # Filter data based on user parameters
-            df_filtered = df[(df[x_axis] >= x_min) & (df[x_axis] <= x_max) &
-                             (df[y_axis] >= y_min) & (df[y_axis] <= y_max)]
-            if len(df_filtered) > sample_size:
-                df_filtered = df_filtered.sample(n=sample_size, random_state=42)
+            # Calculate initial axis limits from unfiltered data with padding
+            x_padding = (df[x_axis].max() - df[x_axis].min()) * 0.1
+            y_padding = (df[y_axis].max() - df[y_axis].min()) * 0.1
+            plot_x_min = df[x_axis].min() - x_padding
+            plot_x_max = df[x_axis].max() + x_padding
+            plot_y_min = df[y_axis].min() - y_padding
+            plot_y_max = df[y_axis].max() + y_padding
+
+            # Debug: Print the calculated ranges
+            st.write(f"Debug - {os.path.basename(path)}: x_range=[{plot_x_min:.2f}, {plot_x_max:.2f}], y_range=[{plot_y_min:.2f}, {plot_y_max:.2f}]")
+
+            # Filter data based on user parameters (using the provided limits as a starting point)
+            df_filtered = df[(df[x_axis] >= plot_x_min) & (df[x_axis] <= plot_x_max) &
+                             (df[y_axis] >= plot_y_min) & (df[y_axis] <= plot_y_max)]
 
             # Estimate density by 2D histogram and crop high-density area
             x_bins = np.linspace(df_filtered[x_axis].min(), df_filtered[x_axis].max(), 200)
@@ -68,7 +83,7 @@ def plot_xyz_like_files(col, label, selected_files, x_axis, y_axis, x_min, x_max
 
             fig = go.Figure(data=go.Scattergl(
                 x=df_filtered[x_axis], y=df_filtered[y_axis],
-                mode='markers',  # Changed to scatter plot
+                mode='markers',
                 marker=dict(
                     color=df_filtered["z"],
                     colorscale='Viridis',
@@ -86,14 +101,69 @@ def plot_xyz_like_files(col, label, selected_files, x_axis, y_axis, x_min, x_max
             fig.update_layout(
                 title=os.path.basename(path),
                 height=400,
-                xaxis=dict(showgrid=True, zeroline=False),
-                yaxis=dict(showgrid=True, zeroline=False),
+                xaxis=dict(range=[plot_x_min, plot_x_max], showgrid=True, zeroline=False),
+                yaxis=dict(range=[plot_y_min, plot_y_max], showgrid=True, zeroline=False),
                 margin=dict(l=10, r=10, b=10, t=30),
             )
             col.plotly_chart(fig, use_container_width=True)
 
         except Exception as e:
             col.warning(f"{os.path.basename(path)} - error: {e}")
+
+# Function to plot two files as scatter plots side by side
+def plot_two_layers(col1, col2, file1, file2, x_axis, y_axis, z_threshold, x_min, x_max, y_min, y_max):
+    try:
+        # Load and filter first file
+        if hasattr(file1, 'read'):
+            file1.seek(0)  # Reset pointer for multiple reads
+        df1 = load_custom_xyz_file(file1)
+        df1_filtered = df1[(df1[x_axis] >= x_min) & (df1[x_axis] <= x_max) &
+                          (df1[y_axis] >= y_min) & (df1[y_axis] <= y_max)]
+        z_scores1 = np.abs((df1_filtered["z"] - df1_filtered["z"].mean()) / df1_filtered["z"].std())
+        abnormal_points1 = df1_filtered[z_scores1 > z_threshold]
+
+        # Load and filter second file
+        if hasattr(file2, 'read'):
+            file2.seek(0)  # Reset pointer for multiple reads
+        df2 = load_custom_xyz_file(file2)
+        df2_filtered = df2[(df2[x_axis] >= x_min) & (df2[x_axis] <= x_max) &
+                          (df2[y_axis] >= y_min) & (df2[y_axis] <= y_max)]
+        z_scores2 = np.abs((df2_filtered["z"] - df2_filtered["z"].mean()) / df2_filtered["z"].std())
+        abnormal_points2 = df2_filtered[z_scores2 > z_threshold]
+
+        # Plot first file
+        fig1 = go.Figure(data=go.Scattergl(
+            x=df1_filtered[x_axis], y=df1_filtered[y_axis],
+            mode='markers',
+            marker=dict(color=df1_filtered["z"], colorscale='Viridis', size=2, showscale=True, colorbar=dict(title="Z Height"))
+        ))
+        if not abnormal_points1.empty:
+            fig1.add_trace(go.Scattergl(x=abnormal_points1[x_axis], y=abnormal_points1[y_axis],
+                                      mode='markers', marker=dict(color='red', size=6), name="Abnormal"))
+        fig1.update_layout(title=os.path.basename(getattr(file1, 'name', 'File1')), height=400,
+                          xaxis=dict(range=[x_min, x_max], showgrid=True, zeroline=False),
+                          yaxis=dict(range=[y_min, y_max], showgrid=True, zeroline=False),
+                          margin=dict(l=10, r=10, b=10, t=30))
+        col1.plotly_chart(fig1, use_container_width=True)
+
+        # Plot second file
+        fig2 = go.Figure(data=go.Scattergl(
+            x=df2_filtered[x_axis], y=df2_filtered[y_axis],
+            mode='markers',
+            marker=dict(color=df2_filtered["z"], colorscale='Viridis', size=2, showscale=True, colorbar=dict(title="Z Height"))
+        ))
+        if not abnormal_points2.empty:
+            fig2.add_trace(go.Scattergl(x=abnormal_points2[x_axis], y=abnormal_points2[y_axis],
+                                      mode='markers', marker=dict(color='red', size=6), name="Abnormal"))
+        fig2.update_layout(title=os.path.basename(getattr(file2, 'name', 'File2')), height=400,
+                          xaxis=dict(range=[x_min, x_max], showgrid=True, zeroline=False),
+                          yaxis=dict(range=[y_min, y_max], showgrid=True, zeroline=False),
+                          margin=dict(l=10, r=10, b=10, t=30))
+        col2.plotly_chart(fig2, use_container_width=True)
+
+    except Exception as e:
+        col1.warning(f"{getattr(file1, 'name', 'File1')} - error: {e}")
+        col2.warning(f"{getattr(file2, 'name', 'File2')} - error: {e}")
 
 # --- Initialize Session States ---
 if 'files_submitted' not in st.session_state:
@@ -180,18 +250,37 @@ class UploadedGitHubFile:
 # Load logic
 def load_data(file_content, filetype):
     if filetype == ".csv":
-        return pd.read_csv(StringIO(file_content.decode("utf-8")))
+        try:
+            df = pd.read_csv(StringIO(file_content.decode("utf-8")))
+            return df
+        except Exception as e:
+            st.error(f"Error loading CSV: {e}")
+            return None
     elif filetype == ".pcd":
-        with tempfile.NamedTemporaryFile(delete=False, suffix=".pcd") as tmp:
-            tmp.write(file_content)
-            filepath = tmp.name
-            with open(filepath, 'r') as f:
-                lines = f.readlines()
+        try:
+            with tempfile.NamedTemporaryFile(delete=False, suffix=".pcd") as tmp:
+                tmp.write(file_content)
+                filepath = tmp.name
+                with open(filepath, 'r') as f:
+                    lines = f.readlines()
             data_lines = [line.strip() for line in lines if line.strip() and not line.startswith('#')]
             data_array = np.array([list(map(float, line.split())) for line in data_lines])
-            df = pd.DataFrame(data_array[:, :3], columns=['X', 'Y', 'Z'])
-        os.unlink(filepath)  # Clean up temporary file
-        return df
+            os.unlink(filepath)
+            points = data_array[:, :3]
+            unique_id = str(hash(file_content))[:8]
+            slider_key = f"pcd_rotation_angle_{unique_id}"
+            rotation_angle = st.sidebar.slider("Rotation Angle (°)", 0, 360, 16, 1, key=slider_key)
+            bit_val = 400 / (2**20 - 1)
+            angle_radians = np.radians(rotation_angle)
+            sin_t, cos_t = np.sin(angle_radians), np.cos(angle_radians)
+            x_rot = [(d[1] * -bit_val * cos_t - d[0] * bit_val * sin_t) for d in points]
+            y_rot = [(d[1] * -bit_val * sin_t + d[0] * bit_val * cos_t) for d in points]
+            z_rot = points[:, 2]
+            df = pd.DataFrame({"x": x_rot, "y": y_rot, "z": z_rot})
+            return df
+        except Exception as e:
+            st.error(f"Error loading PCD: {e}")
+            return None
     return None
 
 # Process local folder
@@ -418,12 +507,16 @@ if not st.session_state.files_submitted or st.session_state.show_upload_area:
             key="desktop_uploader",
             label_visibility="collapsed",
             accept_multiple_files=True,
-            help="Drag and drop files here or click to browse")
+            help="Drag and drop files here or click to browse"
+        )
     if uploaded_files:
         new_files_added = False
         existing_names = [f.name for f in st.session_state.uploaded_files]
         for uploaded_file in uploaded_files:
-            if uploaded_file.name not in existing_names:
+            # Manual size check for 1GB limit
+            if uploaded_file.size > 1073741824:  # 1GB in bytes
+                st.error(f"File '{uploaded_file.name}' exceeds the 1GB size limit and cannot be uploaded.")
+            elif uploaded_file.name not in existing_names:
                 st.session_state.uploaded_files.append(uploaded_file)
                 new_files_added = True
         if new_files_added:
@@ -545,7 +638,6 @@ if not st.session_state.files_submitted or st.session_state.show_upload_area:
                                 except Exception as e:
                                     st.error(f"Could not preview CSV: {e}")
                             elif file_ext == "pcd":
-                                # st.info("PCD preview: Only file name, size, and type shown.")
                                 st.write({"Name": file_name, "Size (MB)": f"{file_size:.2f} MB", "Type": file_type})
                             else:
                                 st.warning("Preview not supported for this file type.")
@@ -567,7 +659,7 @@ if not st.session_state.files_submitted or st.session_state.show_upload_area:
                 # Rename mode
                 if st.session_state.file_rename_mode.get(i, False):
                     with st.container():
-                        st.markdown("✏ Rename File**")
+                        st.markdown("✏ Rename File")
                         col_rename1, col_rename2, col_rename3 = st.columns([2, 1, 1])
                         with col_rename1:
                             new_name = st.text_input(
@@ -592,7 +684,7 @@ if not st.session_state.files_submitted or st.session_state.show_upload_area:
                 # Share mode
                 if st.session_state.file_share_mode.get(i, False):
                     with st.container():
-                        st.markdown("*➦ Share File*")
+                        st.markdown("➦ Share File")
                         share_option = st.selectbox(
                             "Select sharing option:",
                             ["Public Link", "ROTRIX Team", "Email"],
@@ -644,7 +736,7 @@ if not st.session_state.files_submitted or st.session_state.show_upload_area:
             if st.button("➦ Share All", use_container_width=True):
                 st.session_state.share_all_mode = not st.session_state.get("share_all_mode", False)
             if st.session_state.get("share_all_mode", False):
-                st.markdown("*Share All Files*")
+                st.markdown("Share All Files")
                 share_all_option = st.selectbox(
                     "Select sharing option for all files:",
                     ["Public Link", "ROTRIX Team", "Email"],
@@ -709,9 +801,19 @@ if st.session_state.files_submitted and not st.session_state.show_upload_area:
     </script>
     """, height=0)
 
-    # === NOW move your full tab layout code here ===
-    main_tab1, main_tab2 = st.tabs(["🧩 Single", "📊 Comparative"])
-    with main_tab1:
+    # Sidebar for Parameter Settings
+    st.sidebar.markdown("""
+        <style>
+        [data-testid="stSidebar"] {
+            width: 310px;
+            min-width: 310px;
+        }
+        </style>
+    """, unsafe_allow_html=True)
+    st.sidebar.header("🔧 Select Parameters")
+
+    main_tab1 = st.tabs(["🧩 Single"])
+    with main_tab1[0]:
         st.markdown("### 🧩 Single Part View")
 
         # File upload
@@ -724,7 +826,7 @@ if st.session_state.files_submitted and not st.session_state.show_upload_area:
 
         layer_option = st.radio(
             "Select View Type",
-            ["Single Layer", "Single Part", "Two Layer/Part"],
+            ["Single Layer", "Single Part", "Two Layers"],
             horizontal=True,
             key="layer_option_single"
         )
@@ -744,61 +846,68 @@ if st.session_state.files_submitted and not st.session_state.show_upload_area:
 
                 common_cols = s_df.columns.tolist()
                 if common_cols:
-                    col1, col2 = st.columns([0.25, 0.75])
-                    with col1:
-                        st.markdown("#### 📈 Parameters")
-                        x_axis = st.selectbox("X-Axis", ["None"] + common_cols, key="x_axis_single")
-                        y_axis = st.selectbox("Y-Axis", ["None"] + common_cols, key="y_axis_single")
-                        sample_size = st.slider("Sample Size (for large datasets)", 1000, 100000, 10000, 1000)
-                        z_threshold = st.slider("Z-Score Threshold for Abnormal Points", 1.0, 5.0, 3.0, 0.1)
+                    # Move parameters to sidebar
+                    st.sidebar.header("🎯 Abnormality Settings")
+                    x_axis = st.sidebar.selectbox("📌 X-Axis", ["None"] + common_cols, key="x_axis_single")
+                    y_axis = st.sidebar.selectbox("📌 Y-Axis", ["None"] + common_cols, key="y_axis_single")
+                    color_axis = st.sidebar.selectbox("🎨 Color by (Optional)", ["None"] + common_cols, key="color_axis_single")
+                    z_threshold = st.sidebar.slider("Z-Score Threshold for Abnormal Points", 1.0, 5.0, 3.0, 0.1, key="z_threshold_single")
 
-                        if x_axis != "None" and y_axis != "None":
-                            x_min = st.number_input("X min", value=float(s_df[x_axis].min()), key="x_min_single")
-                            x_max = st.number_input("X max", value=float(s_df[x_axis].max()), key="x_max_single")
-                            y_min = st.number_input("Y min", value=float(s_df[y_axis].min()), key="y_min_single")
-                            y_max = st.number_input("Y max", value=float(s_df[y_axis].max()), key="y_max_single")
+                    if x_axis != "None" and y_axis != "None":
+                        x_mean = s_df[x_axis].mean()
+                        x_std = s_df[x_axis].std()
+                        y_mean = s_df[y_axis].mean()
+                        y_std = s_df[y_axis].std()
+                        x_min = st.sidebar.number_input("X min", value=float(x_mean - 3 * x_std), key="x_min_single")
+                        x_max = st.sidebar.number_input("X max", value=float(x_mean + 3 * x_std), key="x_max_single")
+                        y_min = st.sidebar.number_input("Y min", value=float(y_mean - 3 * y_std), key="y_min_single")
+                        y_max = st.sidebar.number_input("Y max", value=float(y_mean + 3 * y_std), key="y_max_single")
 
-                            filtered = s_df[(s_df[x_axis] >= x_min) & (s_df[x_axis] <= x_max) &
-                                            (s_df[y_axis] >= y_min) & (s_df[y_axis] <= y_max)]
-                            if len(filtered) > sample_size:
-                                filtered = filtered.sample(n=sample_size, random_state=42)
+                        filtered = s_df[(s_df[x_axis] >= x_min) & (s_df[x_axis] <= x_max) &
+                                        (s_df[y_axis] >= y_min) & (s_df[y_axis] <= y_max)]
 
-                            mean_val = filtered[y_axis].mean()
-                            std_val = filtered[y_axis].std()
-                            z_scores = np.abs((filtered[y_axis] - mean_val) / std_val)
-                            abnormal_points = filtered[z_scores > z_threshold]
-                            st.write("Debug: Filtered data size:", len(filtered))  # Debug check
-                        else:
-                            st.session_state.single_plot_ready = False
+                        mean_val = filtered[color_axis].mean() if color_axis != "None" else filtered[y_axis].mean()
+                        std_val = filtered[color_axis].std() if color_axis != "None" else filtered[y_axis].std()
+                        z_scores = np.abs((filtered[color_axis] - mean_val) / std_val) if color_axis != "None" else np.abs((filtered[y_axis] - mean_val) / std_val)
+                        abnormal_points = filtered[z_scores > z_threshold]
+                        st.write("Debug: Filtered data size:", len(filtered))  # Debug check
+                    else:
+                        st.session_state.single_plot_ready = False
 
-                    with col2:
-                        if x_axis == "None" or y_axis == "None":
-                            st.info("📌 Please select valid X and Y axes.")
-                        elif filtered.empty:
-                            st.warning("No data to plot. Check your filters or axis selections.")
-                        else:
+                    if x_axis == "None" or y_axis == "None":
+                        st.info("📌 Please select valid X and Y axes.")
+                    elif filtered.empty:
+                        st.warning("No data to plot. Check your filters or axis selections.")
+                    else:
+                        # 👉 Side-by-side layout for plot and abnormality table
+                        col1, col2 = st.columns([2, 1])  # 2/3 plot, 1/3 table
+
+                        with col1:
                             st.markdown("### 📊 Single File Scatter Plot")
-                            fig = go.Figure()
-                            fig.add_trace(go.Scatter(x=filtered[x_axis], y=filtered[y_axis],
-                                                     mode='markers', name="Data", marker=dict(color='skyblue', size=5)))
-                            fig.add_trace(go.Scatter(x=[filtered[x_axis].min(), filtered[x_axis].max()],
-                                                     y=[mean_val, mean_val], mode='lines',
-                                                     name=f"Mean ({mean_val:.2f})",
-                                                     line=dict(color='green', dash='dash')))
-                            fig.add_trace(go.Scatter(x=[filtered[x_axis].min(), filtered[x_axis].max()],
-                                                     y=[mean_val + std_val, mean_val + std_val],
-                                                     mode='lines', name=f"+1 SD",
-                                                     line=dict(color='blue', dash='dot')))
-                            fig.add_trace(go.Scatter(x=[filtered[x_axis].min(), filtered[x_axis].max()],
-                                                     y=[mean_val - std_val, mean_val - std_val],
-                                                     mode='lines', name=f"-1 SD",
-                                                     line=dict(color='blue', dash='dot')))
+                            fig = px.scatter(
+                                filtered, x=x_axis, y=y_axis,
+                                color=filtered[color_axis] if color_axis != "None" else None,
+                                title=f"{y_axis} - Scatter Plot", color_continuous_scale="Turbo"
+                            )
                             if not abnormal_points.empty:
-                                fig.add_trace(go.Scatter(x=abnormal_points[x_axis], y=abnormal_points[y_axis],
-                                                         mode='markers', name="Abnormal",
-                                                         marker=dict(color='red', size=6)))
-                            fig.update_layout(height=600, width=1000, title="Scatter Plot with Statistics")
+                                fig.add_trace(go.Scatter(
+                                    x=abnormal_points[x_axis],
+                                    y=abnormal_points[y_axis],
+                                    mode='markers',
+                                    name="Abnormal",
+                                    marker=dict(color='red', size=6)
+                                ))
+                            fig.update_layout(height=600, title="Scatter Plot with Statistics")
                             st.plotly_chart(fig, use_container_width=True)
+
+                        with col2:
+                            st.subheader("⚠ Abnormality Detection")
+                            st.write(f"Detected {len(abnormal_points)} abnormal points.")
+                            st.dataframe(
+                                abnormal_points[
+                                    [x_axis, y_axis, color_axis] if color_axis != "None" else [x_axis, y_axis]]
+                            )
+
                 else:
                     st.warning("This file doesn't contain valid numeric columns.")
 
@@ -840,229 +949,123 @@ if st.session_state.files_submitted and not st.session_state.show_upload_area:
                 if files:
                     files.sort()
                     total = len(files)
-                    one_third = total // 3
-                    bottom_files = files[:one_third][:3]
-                    middle_files = files[one_third:2 * one_third][:3]
-                    top_files = files[2 * one_third:][:3]
+                    one_third = total // 2
+                    bottom_files = files[:3]
+                    middle_files = files[one_third-2:one_third+1]
+                    top_files = files[-3:]
 
-                    # Initialize session state for parameters with finite defaults
+                    # Initialize session state for parameters with fixed two-decimal-place defaults
                     if "x_axis_single_part" not in st.session_state:
                         st.session_state.x_axis_single_part = "None"
                     if "y_axis_single_part" not in st.session_state:
                         st.session_state.y_axis_single_part = "None"
-                    if "sample_size_single_part" not in st.session_state:
-                        st.session_state.sample_size_single_part = 10000
+                    if "color_axis_single_part" not in st.session_state:
+                        st.session_state.color_axis_single_part = "None"
                     if "z_threshold_single_part" not in st.session_state:
                         st.session_state.z_threshold_single_part = 3.0
                     if "x_min_single_part" not in st.session_state:
-                        st.session_state.x_min_single_part = -1e10  # Finite large negative value
+                        st.session_state.x_min_single_part = -55.20
                     if "x_max_single_part" not in st.session_state:
-                        st.session_state.x_max_single_part = 1e10   # Finite large positive value
+                        st.session_state.x_max_single_part = -37.10
                     if "y_min_single_part" not in st.session_state:
-                        st.session_state.y_min_single_part = -1e10  # Finite large negative value
+                        st.session_state.y_min_single_part = 22.65
                     if "y_max_single_part" not in st.session_state:
-                        st.session_state.y_max_single_part = 1e10   # Finite large positive value
+                        st.session_state.y_max_single_part = 40.00
 
-                    col_lhs, col_rhs = st.columns([0.75, 0.25])
-                    with col_lhs:
-                        col_btm, col_mid, col_top = st.columns(3)
-                        # Only plot if both X and Y axes are selected and plot is ready
-                        if st.session_state.plot_ready_single_part and st.session_state.x_axis_single_part != "None" and st.session_state.y_axis_single_part != "None":
-                            plot_xyz_like_files(col_btm, "Bottom", bottom_files,
-                                              st.session_state.x_axis_single_part, st.session_state.y_axis_single_part,
-                                              st.session_state.x_min_single_part,
-                                              st.session_state.x_max_single_part,
-                                              st.session_state.y_min_single_part,
-                                              st.session_state.y_max_single_part,
-                                              st.session_state.sample_size_single_part, st.session_state.z_threshold_single_part)
-                            plot_xyz_like_files(col_mid, "Middle", middle_files,
-                                              st.session_state.x_axis_single_part, st.session_state.y_axis_single_part,
-                                              st.session_state.x_min_single_part,
-                                              st.session_state.x_max_single_part,
-                                              st.session_state.y_min_single_part,
-                                              st.session_state.y_max_single_part,
-                                              st.session_state.sample_size_single_part, st.session_state.z_threshold_single_part)
-                            plot_xyz_like_files(col_top, "Top", top_files,
-                                              st.session_state.x_axis_single_part, st.session_state.y_axis_single_part,
-                                              st.session_state.x_min_single_part,
-                                              st.session_state.x_max_single_part,
-                                              st.session_state.y_min_single_part,
-                                              st.session_state.y_max_single_part,
-                                              st.session_state.sample_size_single_part, st.session_state.z_threshold_single_part)
-                        else:
-                            col_btm.warning("Please select both X-Axis and Y-Axis in the parameters to view the plot.")
-                            col_mid.warning("Please select both X-Axis and Y-Axis in the parameters to view the plot.")
-                            col_top.warning("Please select both X-Axis and Y-Axis in the parameters to view the plot.")
+                    # Move parameters to sidebar
+                    st.sidebar.header("🎯 Abnormality Settings")
+                    x_axis = st.sidebar.selectbox("📌 X-Axis", ["None", "x", "y", "z"], key="x_axis_single_part")
+                    y_axis = st.sidebar.selectbox("📌 Y-Axis", ["None", "x", "y", "z"], key="y_axis_single_part")
+                    color_axis = st.sidebar.selectbox("🎨 Color by (Optional)", ["None", "x", "y", "z"], key="color_axis_single_part")
+                    z_threshold = st.sidebar.slider("Z-Score Threshold", 1.0, 5.0, st.session_state.z_threshold_single_part, 0.1, key="z_threshold_single_part")
+                    x_min = st.sidebar.number_input("X min", value=st.session_state.x_min_single_part, format="%.2f", key="x_min_single_part")
+                    x_max = st.sidebar.number_input("X max", value=st.session_state.x_max_single_part, format="%.2f", key="x_max_single_part")
+                    y_min = st.sidebar.number_input("Y min", value=st.session_state.y_min_single_part, format="%.2f", key="y_min_single_part")
+                    y_max = st.sidebar.number_input("Y max", value=st.session_state.y_max_single_part, format="%.2f", key="y_max_single_part")
 
-                    with col_rhs:
-                        st.markdown("#### 📈 Parameters")
-                        x_axis = st.selectbox("X-Axis", ["None", "x", "y", "z"], key="x_axis_single_part", index=0)
-                        y_axis = st.selectbox("Y-Axis", ["None", "x", "y", "z"], key="y_axis_single_part", index=0)
-                        sample_size = st.slider("Sample Size", 1000, 100000, st.session_state.sample_size_single_part, 1000, key="sample_size_single_part")
-                        z_threshold = st.slider("Z-Score Threshold", 1.0, 5.0, st.session_state.z_threshold_single_part, 0.1, key="z_threshold_single_part")
-                        x_min = st.number_input("X min", value=st.session_state.x_min_single_part, key="x_min_single_part")
-                        x_max = st.number_input("X max", value=st.session_state.x_max_single_part, key="x_max_single_part")
-                        y_min = st.number_input("Y min", value=st.session_state.y_min_single_part, key="y_min_single_part")
-                        y_max = st.number_input("Y max", value=st.session_state.y_max_single_part, key="y_max_single_part")
+                    # Set plot_ready flag when both axes are selected
+                    if x_axis != "None" and y_axis != "None":
+                        st.session_state.plot_ready_single_part = True
+                    else:
+                        st.session_state.plot_ready_single_part = False
 
-                        # Set plot_ready flag when both axes are selected
-                        if st.session_state.x_axis_single_part != "None" and st.session_state.y_axis_single_part != "None":
-                            st.session_state.plot_ready_single_part = True
-                        elif st.session_state.x_axis_single_part == "None" or st.session_state.y_axis_single_part == "None":
-                            st.session_state.plot_ready_single_part = False
+                    col_btm, col_mid, col_top = st.columns(3)
+                    if st.session_state.plot_ready_single_part:
+                        plot_xyz_like_files(col_btm, "Bottom", bottom_files,
+                                            x_axis, y_axis, x_min, x_max, y_min, y_max, z_threshold)
+                        plot_xyz_like_files(col_mid, "Middle", middle_files,
+                                            x_axis, y_axis, x_min, x_max, y_min, y_max, z_threshold)
+                        plot_xyz_like_files(col_top, "Top", top_files,
+                                            x_axis, y_axis, x_min, x_max, y_min, y_max, z_threshold)
+                    else:
+                        col_btm.warning("Please select both X-Axis and Y-Axis in the parameters to view the plot.")
+                        col_mid.warning("Please select both X-Axis and Y-Axis in the parameters to view the plot.")
+                        col_top.warning("Please select both X-Axis and Y-Axis in the parameters to view the plot.")
 
                 elif folder_path and not files:
                     st.warning("Folder or URL is accessible, but no .pcd files were found.")
 
-        # 3. Two Layer/Part View
-        elif layer_option == "Two Layer/Part":
-            st.warning("Two Layer/Part view is not implemented yet.")
+        # 3. Two Layers View
+        elif layer_option == "Two Layers":
+            col1, col2 = st.columns(2)
+            with col1:
+                selected_file1 = st.selectbox("Select First File", ["None"] + single_names, key="file1_select")
+            with col2:
+                selected_file2 = st.selectbox("Select Second File", ["None"] + single_names, key="file2_select")
 
-    with main_tab2:
-        st.markdown("### 📊 Comparative Analysis")
+            if selected_file1 != "None" and selected_file2 != "None" and selected_file1 != selected_file2:
+                file1 = single_files[single_names.index(selected_file1)]
+                file2 = single_files[single_names.index(selected_file2)]
 
-        benchmark_files = st.session_state.uploaded_files
-        benchmark_names = [f.name for f in benchmark_files]
+                if hasattr(file1, 'seek'):
+                    file1.seek(0)
+                if hasattr(file2, 'seek'):
+                    file2.seek(0)
 
-        col3, col4 = st.columns(2)
-        with col3:
-            selected_bench = st.selectbox("Select Abirami File", ["None"] + benchmark_names, key="bench_select")
-            if selected_bench != "None":
-                b_file = benchmark_files[benchmark_names.index(selected_bench)]
-                b_file_ext = os.path.splitext(b_file.name)[-1].lower()
-                if hasattr(b_file, 'seek'):
-                    b_file.seek(0)
-                st.session_state.b_df = load_data(b_file.read(), b_file_ext)
-            else:
-                st.session_state.b_df = None
+                # Load sample data to determine intelligent bounds
+                sample_df1 = load_custom_xyz_file(file1) if file1 else pd.DataFrame(columns=["x", "y", "z"])
+                sample_df2 = load_custom_xyz_file(file2) if file2 else pd.DataFrame(columns=["x", "y", "z"])
+                if not sample_df1.empty and not sample_df2.empty:
+                    # Initialize session state with default axis values
+                    if "x_axis_two_layers" not in st.session_state:
+                        st.session_state.x_axis_two_layers = "x"
+                    if "y_axis_two_layers" not in st.session_state:
+                        st.session_state.y_axis_two_layers = "y"
+                    if "color_axis_two_layers" not in st.session_state:
+                        st.session_state.color_axis_two_layers = "z"
+                    if "z_threshold_two_layers" not in st.session_state:
+                        st.session_state.z_threshold_two_layers = 3.0
+                    # Use default x_axis and y_axis for initial bounds calculation
+                    default_x_axis = st.session_state.x_axis_two_layers
+                    default_y_axis = st.session_state.y_axis_two_layers
+                    if "x_min_two_layers" not in st.session_state:
+                        st.session_state.x_min_two_layers = sample_df1[default_x_axis].min() - (sample_df1[default_x_axis].max() - sample_df1[default_x_axis].min()) * 0.1
+                    if "x_max_two_layers" not in st.session_state:
+                        st.session_state.x_max_two_layers = sample_df1[default_x_axis].max() + (sample_df1[default_x_axis].max() - sample_df1[default_x_axis].min()) * 0.1
+                    if "y_min_two_layers" not in st.session_state:
+                        st.session_state.y_min_two_layers = sample_df1[default_y_axis].min() - (sample_df1[default_y_axis].max() - sample_df1[default_y_axis].min()) * 0.1
+                    if "y_max_two_layers" not in st.session_state:
+                        st.session_state.y_max_two_layers = sample_df1[default_y_axis].max() + (sample_df1[default_y_axis].max() - sample_df1[default_y_axis].min()) * 0.1
 
-        with col4:
-            selected_val = st.selectbox("Select Keerthi File", ["None"] + benchmark_names, key="val_select")
-            if selected_val != "None":
-                v_file = benchmark_files[benchmark_names.index(selected_val)]
-                v_file_ext = os.path.splitext(v_file.name)[-1].lower()
-                if hasattr(v_file, 'seek'):
-                    v_file.seek(0)
-                st.session_state.v_df = load_data(v_file.read(), v_file_ext)
-            else:
-                st.session_state.v_df = None
+                    # Move parameters to sidebar
+                    st.sidebar.header("🎯 Abnormality Settings")
+                    x_axis = st.sidebar.selectbox("📌 X-Axis", ["x", "y", "z"], key="x_axis_two_layers")
+                    y_axis = st.sidebar.selectbox("📌 Y-Axis", ["x", "y", "z"], key="y_axis_two_layers")
+                    color_axis = st.sidebar.selectbox("🎨 Color by (Optional)", ["None", "x", "y", "z"], key="color_axis_two_layers")
+                    z_threshold = st.sidebar.slider("Z-Score Threshold", 1.0, 5.0, st.session_state.z_threshold_two_layers, 0.1, key="z_threshold_two_layers")
+                    x_min = st.sidebar.number_input("X min", value=st.session_state.x_min_two_layers, format="%.2f", key="x_min_two_layers")
+                    x_max = st.sidebar.number_input("X max", value=st.session_state.x_max_two_layers, format="%.2f", key="x_max_two_layers")
+                    y_min = st.sidebar.number_input("Y min", value=st.session_state.y_min_two_layers, format="%.2f", key="y_min_two_layers")
+                    y_max = st.sidebar.number_input("Y max", value=st.session_state.y_max_two_layers, format="%.2f", key="y_max_two_layers")
 
-        b_df = st.session_state.get("b_df")
-        v_df = st.session_state.get("v_df")
-
-        if b_df is not None and v_df is not None:
-            common_cols = list(set(b_df.columns) & set(v_df.columns))
-            if common_cols:
-                col1, col2 = st.columns([0.25, 0.75])
-                with col1:
-                    st.markdown("#### 📈 Parameters")
-                    x_axis = st.selectbox("X-Axis", ["None"] + common_cols, key="x_axis_select")
-                    y_axis = st.selectbox("Y-Axis", ["None"] + common_cols, key="y_axis_select")
-                    sample_size = st.slider("Sample Size (for large datasets)", 1000, 100000, 10000, 1000,
-                                            help="Reduce the number of points to plot for performance.")
-                    z_threshold = st.slider("Z-Score Threshold for Abnormal Points", 1.0, 5.0, 3.0, 0.1,
-                                            help="Points with Z-score above this threshold will be marked as abnormal.")
-
-                    if x_axis == "None" or y_axis == "None":
-                        st.info("📌 Please select a valid X-axis and Y-axis to compare.")
+                    if x_axis and y_axis:
+                        plot_two_layers(col1, col2, file1, file2, x_axis, y_axis, z_threshold, x_min, x_max, y_min, y_max)
                     else:
-                        x_min = st.number_input("X min", value=float(b_df[x_axis].min()), key="x_min")
-                        x_max = st.number_input("X max", value=float(b_df[x_axis].max()), key="x_max")
-                        y_min = st.number_input("Y min", value=float(b_df[y_axis].min()), key="y_min")
-                        y_max = st.number_input("Y max", value=float(b_df[y_axis].max()), key="y_max")
-
-                        # Filter data
-                        b_filtered = b_df[(b_df[x_axis] >= x_min) & (b_df[x_axis] <= x_max) &
-                                          (b_df[y_axis] >= y_min) & (b_df[y_axis] <= y_max)]
-                        v_filtered = v_df[(v_df[x_axis] >= x_min) & (v_df[x_axis] <= x_max) &
-                                          (v_df[y_axis] >= y_min) & (v_df[y_axis] <= y_max)]
-
-                        # Sample the data if too large
-                        if len(b_filtered) > sample_size:
-                            b_filtered = b_filtered.sample(n=sample_size, random_state=42)
-                        if len(v_filtered) > sample_size:
-                            v_filtered = v_filtered.sample(n=sample_size, random_state=42)
-
-                        merged = pd.merge(b_filtered, v_filtered, on=x_axis, suffixes=('_benchmark', '_validation'),
-                                          how='inner')
-                        st.write("Debug: Merged data size:", len(merged))  # Debug check
-
-                        # Calculate abnormal points and stats for validation data
-                        if not merged.empty and f"{y_axis}_validation" in merged.columns:
-                            val_col = f"{y_axis}_validation"
-                            if pd.api.types.is_numeric_dtype(merged[val_col]):
-                                mean_val = merged[val_col].mean()
-                                std_val = merged[val_col].std()
-                                z_scores = np.abs((merged[val_col] - mean_val) / std_val)
-                                abnormal_mask = z_scores > z_threshold
-                                abnormal_points = merged[abnormal_mask]
-                            else:
-                                st.warning(
-                                    f"Column {val_col} contains non-numeric data. Skipping abnormality detection.")
-                                abnormal_points = pd.DataFrame()
-                        else:
-                            st.warning("No valid data for abnormality detection.")
-                            abnormal_points = pd.DataFrame()
-
-                with col2:
-                    if x_axis == "None" or y_axis == "None":
-                        st.info("📌 Please select a valid X-axis and Y-axis to compare.")
-                    elif merged.empty:
-                        st.warning("No data to plot. Check filters or column selections.")
-                    else:
-                        st.markdown("### 🧮 Plot Visualization")
-                        fig = make_subplots(rows=2, cols=1, subplot_titles=["Abirami", "Keerthishree"],
-                                            shared_yaxes=True)
-
-                        # Abirami plot
-                        fig.add_trace(
-                            go.Scatter(x=merged[x_axis], y=merged[f"{y_axis}_benchmark"], mode='markers', name="Abirami",
-                                       marker=dict(color='skyblue', size=5)),
-                            row=1, col=1)
-
-                        # Keerthishree plot with mean, std, and abnormal points
-                        fig.add_trace(
-                            go.Scatter(x=merged[x_axis], y=merged[f"{y_axis}_validation"], mode='markers', name="Keerthishree",
-                                       marker=dict(color='orange', size=5)),
-                            row=2, col=1)
-                        if not abnormal_points.empty:
-                            fig.add_trace(
-                                go.Scatter(x=abnormal_points[x_axis], y=abnormal_points[f"{y_axis}_validation"],
-                                           mode='markers', marker=dict(color='red', size=6),
-                                           name="Abnormal"), row=2, col=1)
-
-                        # Add mean line
-                        if f"{y_axis}_validation" in merged.columns and pd.api.types.is_numeric_dtype(
-                                merged[f"{y_axis}_validation"]):
-                            fig.add_trace(go.Scatter(x=[merged[x_axis].min(), merged[x_axis].max()],
-                                                     y=[mean_val, mean_val],
-                                                     mode='lines',
-                                                     line=dict(color='green', dash='dash'),
-                                                     name=f"Mean ({mean_val:.2f})"), row=2, col=1)
-
-                            # Add ±1 std deviation bands
-                            fig.add_trace(go.Scatter(x=[merged[x_axis].min(), merged[x_axis].max()],
-                                                     y=[mean_val + std_val, mean_val + std_val],
-                                                     mode='lines',
-                                                     line=dict(color='blue', dash='dot'),
-                                                     name=f"+1 SD ({mean_val + std_val:.2f})"), row=2, col=1)
-                            fig.add_trace(go.Scatter(x=[merged[x_axis].min(), merged[x_axis].max()],
-                                                     y=[mean_val - std_val, mean_val - std_val],
-                                                     mode='lines',
-                                                     line=dict(color='blue', dash='dot'),
-                                                     name=f"-1 SD ({mean_val - std_val:.2f})"), row=2, col=1)
-
-                        fig.update_layout(height=700, width=1000, title_text="Abirami vs Keerthishree Subplot",
-                                          legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1))
-                        st.plotly_chart(fig, use_container_width=True)
+                        col1.warning("Please select both X-Axis and Y-Axis in the parameters to view the plot.")
+                        col2.warning("Please select both X-Axis and Y-Axis in the parameters to view the plot.")
+                else:
+                    col1.warning("Error loading one or both files.")
+                    col2.warning("Error loading one or both files.")
             else:
-                st.warning("No common columns to compare between Abirami and Keerthishree.")
-        else:
-            st.info("Please upload both Abirami and Keerthishree files or pre-converted CSVs.")
-
-# Helper function for abnormality detection
-def detect_abnormalities(series, threshold=3.0):
-    if series.empty or not pd.api.types.is_numeric_dtype(series):
-        return pd.Series([False]), pd.Series([0.0])
-    z_scores = np.abs((series - series.mean()) / series.std())
-    return z_scores > threshold, z_scores
+                col1.info("Please select two different files to compare.")
+                col2.info("Please select two different files to compare.")
