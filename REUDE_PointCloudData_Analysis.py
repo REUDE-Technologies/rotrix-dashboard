@@ -1111,8 +1111,7 @@ if st.session_state.files_submitted and not st.session_state.show_upload_area:
                         ),
                         height=300
                     )
-                    
-                    # Use columns to set histogram width to 3/4 of the page
+                    # Using empty columns to set histogram width to 3/4 of the page
                     hist_col, empty_col = st.columns([3, 1.5])
                     with hist_col:
                         st.plotly_chart(fig_hist, use_container_width=True)
