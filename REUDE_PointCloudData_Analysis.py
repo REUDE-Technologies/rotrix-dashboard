@@ -1,9 +1,9 @@
+#type: ignore
 import streamlit as st
 import pandas as pd
 import numpy as np
 import plotly.express as px
 import plotly.graph_objects as go
-import matplotlib.pyplot as plt
 from plotly.subplots import make_subplots
 from io import StringIO, BytesIO
 from PIL import Image
@@ -15,6 +15,7 @@ import requests
 import zipfile
 import cv2
 import shutil
+import matplotlib.pyplot as plt
 import time
 
 # Function to optimize video generation with OpenCV
@@ -158,7 +159,7 @@ def plot_xyz_like_files(col, label, selected_files, x_axis, y_axis, x_min, x_max
                     colorscale=colorscale,
                     size=4,
                     showscale=True,
-                    colorbar=dict(title=color_title, titlefont=dict(size=12)),
+                    colorbar=dict(title=color_title, tickfont=dict(size=12)),
                     cmin=650,
                     cmax=1000
                 )
@@ -171,7 +172,7 @@ def plot_xyz_like_files(col, label, selected_files, x_axis, y_axis, x_min, x_max
                     colorscale=colorscale,
                     size=4,
                     showscale=True,
-                    colorbar=dict(title=color_title, titlefont=dict(size=12)),
+                    colorbar=dict(title=color_title, tickfont=dict(size=12)),
                     cmin=650,
                     cmax=1000
                 )
@@ -1406,7 +1407,7 @@ if st.session_state.files_submitted and not st.session_state.show_upload_area:
                                         colorscale=colorscale,
                                         size=4,
                                         showscale=True,
-                                        colorbar=dict(title="Temp", titlefont=dict(size=12)),
+                                        colorbar=dict(title="Temp", tickfont=dict(size=12)),
                                         cmin=650,
                                         cmax=1000
                                     ),
