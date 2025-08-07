@@ -11,4 +11,5 @@ watchdog
 openpyxl
 psutil
 opencv-python-headless
+opencv-python
 ultralytics
