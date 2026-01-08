@@ -1,3 +1,4 @@
+#type: ignore
 import streamlit as st
 import pandas as pd
 import numpy as np
@@ -373,7 +374,10 @@ if "active_tab" not in st.session_state:
 if "plot_ready_single_part" not in st.session_state:
     st.session_state.plot_ready_single_part = False
 
-st.cache_data.clear()  # Clear cache to ensure latest code is used
+# Only clear cache once on app start, not on every rerun
+if "cache_cleared" not in st.session_state:
+    st.cache_data.clear()
+    st.session_state.cache_cleared = True
 
 st.set_page_config(page_title="Point Cloud Data Dashboard", layout="wide")
 
@@ -1083,9 +1087,9 @@ if st.session_state.files_submitted and not st.session_state.show_upload_area:
 
             # Add rotation angle control
             rotation_angle = st.sidebar.number_input("Rotation Angle (°)", 0, 359, st.session_state.rotation_angle_single, 1, key="rotation_angle_input")
+            # Update session state if changed (Streamlit handles rerun automatically via key)
             if rotation_angle != st.session_state.rotation_angle_single:
                 st.session_state.rotation_angle_single = rotation_angle
-                st.rerun()
 
             colorscale = st.sidebar.selectbox("🎨 Colorscale", ["plasma", "hot", "viridis", "inferno", "turbo"], key="colorscale_single")
             z_threshold = st.sidebar.slider("Z-Score Threshold for Abnormal Points", 1.0, 5.0, 3.0, 0.1, key="z_threshold_single")
@@ -1131,16 +1135,19 @@ if st.session_state.files_submitted and not st.session_state.show_upload_area:
                         st.session_state.y_max_single_persistent = float(y_mean + 3 * y_std)
                         st.rerun()
                     
-                    # Check if any axis limits changed and trigger rerun
-                    if (x_min != st.session_state.x_min_single_persistent or 
-                        x_max != st.session_state.x_max_single_persistent or
-                        y_min != st.session_state.y_min_single_persistent or
-                        y_max != st.session_state.y_max_single_persistent):
+                    # Update persistent values when user changes inputs (with tolerance for floating point comparison)
+                    # Use a small tolerance to avoid infinite loops from floating point precision issues
+                    tolerance = 1e-10
+                    if (abs(x_min - st.session_state.x_min_single_persistent) > tolerance or 
+                        abs(x_max - st.session_state.x_max_single_persistent) > tolerance or
+                        abs(y_min - st.session_state.y_min_single_persistent) > tolerance or
+                        abs(y_max - st.session_state.y_max_single_persistent) > tolerance):
+                        # Only update if values actually changed significantly
                         st.session_state.x_min_single_persistent = x_min
                         st.session_state.x_max_single_persistent = x_max
                         st.session_state.y_min_single_persistent = y_min
                         st.session_state.y_max_single_persistent = y_max
-                        st.rerun()
+                        # Don't call st.rerun() here - Streamlit will rerun automatically when number_input values change via their keys
 
                     # Video Generation Parameters
                     st.sidebar.markdown("---")
@@ -1704,6 +1711,10 @@ if st.session_state.files_submitted and not st.session_state.show_upload_area:
         #                 col1.warning("Please select both X-Axis and Y-Axis in the parameters to view the plot.")
         #                 col2.warning("Please select both X-Axis and Y-Axis in the parameters to view the plot.")
         #         else:
+        #             col1.warning("Error loading one or both files.")
+        #             col2.warning("Error loading one or both files.")
+        #     else:
+        #         st.info("Please select two different files to compare.")
         #             col1.warning("Error loading one or both files.")
         #             col2.warning("Error loading one or both files.")
         #     else:
