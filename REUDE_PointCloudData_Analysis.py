@@ -1,3 +1,4 @@
+#type: ignore
 import streamlit as st
 import pandas as pd
 import numpy as np
@@ -12,7 +13,13 @@ import io
 import os
 import requests
 import zipfile
-import cv2
+try:
+    import cv2
+except (ImportError, OSError) as e:
+    # Handle ImportError or OSError (e.g., missing libGL.so.1)
+    cv2 = None
+    # Don't show warning here as it will show on every rerun
+    # Warning will be shown when video generation is attempted
 import shutil
 import matplotlib.pyplot as plt
 import time
@@ -29,6 +36,9 @@ def create_video_from_frames(frame_paths, output_path, fps, quality="High (H.264
         quality: Video quality setting ("High (H.264)" or "Standard (MP4V)")
         progress_callback: Optional callback function for progress updates
     """
+    if cv2 is None:
+        return False, "OpenCV is not available. Please install opencv-python-headless in requirements.txt"
+    
     if not frame_paths:
         return False, "No frames provided"
     
