@@ -30,15 +30,14 @@ except OSError:
 # ---------------------------------------------------------------------------
 # Backend switches
 # ---------------------------------------------------------------------------
-STORAGE_BACKEND = os.getenv("STORAGE_BACKEND", "supabase")  # "local", "s3", or "supabase"
+STORAGE_BACKEND = os.getenv("STORAGE_BACKEND", "local")  # "local", "s3", or "supabase"
 BUCKET_NAME = os.getenv("SUPABASE_BUCKET_NAME", "rotrix-files")
 LOCAL_STORAGE_ROOT = os.getenv("LOCAL_STORAGE_ROOT", os.path.join(os.path.dirname(__file__), "local_storage"))
 
 
-def _use_local_auth() -> bool:
-    """Check if local PG backend is active (for metadata DB calls)."""
-    from auth import USE_LOCAL_AUTH
-    return USE_LOCAL_AUTH
+def _use_local_db() -> bool:
+    """Metadata is stored in local Postgres."""
+    return True
 
 
 def _get_db():
@@ -48,12 +47,18 @@ def _get_db():
 
 
 # ---------------------------------------------------------------------------
-# Supabase client (reuse from auth module)
+# Supabase Storage client (file blobs only — not used for authentication)
 # ---------------------------------------------------------------------------
 def _get_supabase():
-    """Get the cached Supabase client from auth module."""
-    from auth import get_supabase
-    return get_supabase()
+    """Return Supabase client for storage API when STORAGE_BACKEND=supabase."""
+    if STORAGE_BACKEND != "supabase":
+        return None
+    url = os.getenv("SUPABASE_URL", "")
+    key = os.getenv("SUPABASE_SERVICE_KEY", "") or os.getenv("SUPABASE_ANON_KEY", "")
+    if not url or not key:
+        return None
+    from supabase import create_client
+    return create_client(url, key)
 
 
 # ---------------------------------------------------------------------------
@@ -200,7 +205,7 @@ def upload_file(file_bytes: bytes, filename: str, user_id: str, org_id: str,
 
         # 2. Record metadata in database
         ft = file_type or os.path.splitext(filename)[-1].lstrip(".")
-        if _use_local_auth():
+        if _use_local_db():
             from models import FileMetadata as FM
             db = _get_db()
             try:
@@ -333,7 +338,7 @@ def upload_report(pdf_bytes: bytes, csv_bytes: bytes | None,
         # 2. Record in report_metadata table
         generated_at = datetime.now(timezone.utc)
 
-        if _use_local_auth():
+        if _use_local_db():
             from models import ReportMetadata as RM
             db = _get_db()
             try:
@@ -453,7 +458,7 @@ def delete_file(storage_path: str) -> bool:
             supabase.storage.from_(BUCKET_NAME).remove([storage_path])
 
         # 2. Remove metadata row
-        if _use_local_auth():
+        if _use_local_db():
             from models import FileMetadata as FM
             db = _get_db()
             try:
@@ -488,7 +493,7 @@ def delete_report_by_id(report_id: str) -> bool:
         pdf_path = None
         csv_path = None
 
-        if _use_local_auth():
+        if _use_local_db():
             from models import ReportMetadata as RM
             db = _get_db()
             try:
@@ -531,7 +536,7 @@ def delete_report_by_id(report_id: str) -> bool:
                 _get_supabase().storage.from_(BUCKET_NAME).remove(paths_to_remove)
 
         # 3. Remove metadata row
-        if _use_local_auth():
+        if _use_local_db():
             db = _get_db()
             try:
                 from models import ReportMetadata as RM
@@ -561,7 +566,7 @@ def list_org_files(org_id: str) -> list[dict]:
     Returns:
         List of file metadata dicts.
     """
-    if _use_local_auth():
+    if _use_local_db():
         from models import FileMetadata as FM
         db = _get_db()
         try:
@@ -595,7 +600,7 @@ def list_org_reports(org_id: str) -> list[dict]:
     Returns:
         List of report metadata dicts.
     """
-    if _use_local_auth():
+    if _use_local_db():
         from models import ReportMetadata as RM
         db = _get_db()
         try:
@@ -629,7 +634,7 @@ def list_recent_files(org_id: str, user_id: str | None = None, limit: int = 10) 
     Returns:
         List of file metadata dicts (most recent first).
     """
-    if _use_local_auth():
+    if _use_local_db():
         from models import FileMetadata as FM
         db = _get_db()
         try:
@@ -669,7 +674,7 @@ def list_reports_for_user(org_id: str, user_id: str, limit: int = 50) -> list[di
     Returns:
         List of report metadata dicts (most recent first).
     """
-    if _use_local_auth():
+    if _use_local_db():
         from models import ReportMetadata as RM
         db = _get_db()
         try:
@@ -708,7 +713,7 @@ def list_reports_for_org(org_id: str, limit: int = 200) -> list[dict]:
     Returns:
         List of report metadata dicts (most recent first).
     """
-    if _use_local_auth():
+    if _use_local_db():
         from models import ReportMetadata as RM
         db = _get_db()
         try:

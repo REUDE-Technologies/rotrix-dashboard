@@ -2,7 +2,7 @@
 """
 Daily report-generation quota system for Rotrix Dashboard.
 
-Supports both local Postgres (SQLAlchemy) and Supabase backends.
+Uses local Postgres (SQLAlchemy) for quota storage.
 
 Quota resolution: per-user override (profiles.daily_report_quota) > system default (100).
 """
@@ -23,30 +23,10 @@ except Exception:
 REPORT_COOLDOWN_SECONDS = 10
 
 
-def _use_local_auth() -> bool:
-    """Check if local PG backend is active."""
-    from auth import USE_LOCAL_AUTH
-    return USE_LOCAL_AUTH
-
-
 def _get_db():
     """Return a SQLAlchemy session."""
     from models import SessionLocal
     return SessionLocal()
-
-
-def _get_supabase_admin():
-    """Return a Supabase client suitable for admin-style queries."""
-    try:
-        from auth import get_supabase_service, get_supabase
-
-        svc = get_supabase_service()
-        if svc is not None:
-            return svc
-        return get_supabase()
-    except Exception as exc:  # pragma: no cover - defensive
-        logger.warning("Failed to get Supabase client for quotas: %s", exc)
-        return None
 
 
 def get_daily_report_count(user_id: str) -> int:
@@ -58,43 +38,24 @@ def get_daily_report_count(user_id: str) -> int:
         hour=0, minute=0, second=0, microsecond=0
     )
 
-    if _use_local_auth():
-        from models import ReportMetadata
-        from sqlalchemy import func as sa_func
-        db = _get_db()
-        try:
-            count = (
-                db.query(sa_func.count(ReportMetadata.id))
-                .filter(
-                    ReportMetadata.user_id == user_id,
-                    ReportMetadata.generated_at >= today_start,
-                )
-                .scalar()
-            )
-            return int(count or 0)
-        except Exception as exc:
-            logger.warning("Failed to count daily reports from PG: %s", exc)
-            return 0
-        finally:
-            db.close()
-
-    # Supabase path
-    client = _get_supabase_admin()
-    if client is None:
-        return 0
+    from models import ReportMetadata
+    from sqlalchemy import func as sa_func
+    db = _get_db()
     try:
-        result = (
-            client.table("report_metadata")
-            .select("id", count="exact")
-            .eq("user_id", user_id)
-            .gte("generated_at", today_start.isoformat())
-            .execute()
+        count = (
+            db.query(sa_func.count(ReportMetadata.id))
+            .filter(
+                ReportMetadata.user_id == user_id,
+                ReportMetadata.generated_at >= today_start,
+            )
+            .scalar()
         )
-        count = getattr(result, "count", None)
         return int(count or 0)
-    except Exception as exc:  # pragma: no cover - best-effort
-        logger.warning("Failed to count daily reports from Supabase: %s", exc)
+    except Exception as exc:
+        logger.warning("Failed to count daily reports from PG: %s", exc)
         return 0
+    finally:
+        db.close()
 
 
 def _read_user_quota(user_id: str) -> int | None:
@@ -102,38 +63,17 @@ def _read_user_quota(user_id: str) -> int | None:
     if not user_id:
         return None
 
-    if _use_local_auth():
-        from models import Profile
-        db = _get_db()
-        try:
-            profile = db.get(Profile, user_id)
-            if profile is None:
-                return None
-            return profile.daily_report_quota
-        except Exception:
-            return None
-        finally:
-            db.close()
-
-    # Supabase path
-    client = _get_supabase_admin()
-    if client is None:
-        return None
+    from models import Profile
+    db = _get_db()
     try:
-        res = (
-            client.table("profiles")
-            .select("daily_report_quota")
-            .eq("id", user_id)
-            .maybe_single()
-            .execute()
-        )
-        row = getattr(res, "data", None) or {}
-        value = row.get("daily_report_quota")
-        if value is None:
+        profile = db.get(Profile, user_id)
+        if profile is None:
             return None
-        return int(value)
-    except Exception:  # pragma: no cover - schema / RLS variations
+        return profile.daily_report_quota
+    except Exception:
         return None
+    finally:
+        db.close()
 
 
 def get_user_quota(user_id: str, org_id: str) -> int:
@@ -192,35 +132,19 @@ def check_quota(user_id: str, org_id: str, num_files: int = 1) -> Tuple[bool, in
 
 def set_user_quota(user_id: str, quota: int | None) -> Tuple[bool, str]:
     """Set daily report quota override for a specific user."""
-    if _use_local_auth():
-        from models import Profile
-        db = _get_db()
-        try:
-            profile = db.get(Profile, user_id)
-            if profile is None:
-                return False, "User profile not found."
-            profile.daily_report_quota = quota
-            db.commit()
-            if quota is None:
-                return True, "User quota override removed (using system default)."
-            return True, f"User quota set to {quota}/day."
-        except Exception as exc:
-            db.rollback()
-            return False, f"Failed to set user quota: {exc}"
-        finally:
-            db.close()
-
-    # Supabase path
-    client = _get_supabase_admin()
-    if client is None:
-        return False, "Supabase service key not configured; cannot update quotas."
+    from models import Profile
+    db = _get_db()
     try:
-        update_val = quota
-        client.table("profiles").update(
-            {"daily_report_quota": update_val}
-        ).eq("id", user_id).execute()
+        profile = db.get(Profile, user_id)
+        if profile is None:
+            return False, "User profile not found."
+        profile.daily_report_quota = quota
+        db.commit()
         if quota is None:
             return True, "User quota override removed (using system default)."
         return True, f"User quota set to {quota}/day."
-    except Exception as exc:  # pragma: no cover - best-effort
+    except Exception as exc:
+        db.rollback()
         return False, f"Failed to set user quota: {exc}"
+    finally:
+        db.close()

@@ -40,9 +40,6 @@ def init_session_state():
         'user_role': '',
         'organization_id': None,
         'organization_name': '',
-        'supabase_session': None,
-        'supabase_refresh_token': '',
-        'supabase_token_expires_at': None,
         'show_profile_popover': False,
         'show_profile_editor': False,
         'profile_status': 'pending_setup',      # pending_setup | pending_approval | approved | rejected

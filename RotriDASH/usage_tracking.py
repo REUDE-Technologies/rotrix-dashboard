@@ -18,18 +18,6 @@ logger = logging.getLogger(__name__)
 _TRACK_DEDUP_SECONDS = 5
 
 
-def _use_local_auth() -> bool:
-    """Check if local PG backend is active."""
-    from auth import USE_LOCAL_AUTH
-    return USE_LOCAL_AUTH
-
-
-def _get_supabase():
-    """Get the cached Supabase client from auth module."""
-    from auth import get_supabase
-    return get_supabase()
-
-
 def _get_db():
     """Return a SQLAlchemy session."""
     from models import SessionLocal
@@ -61,31 +49,22 @@ def track_event(user_id: str, org_id: str, event_type: str,
         if last.get("event_type") == event_type and (now - last.get("t", 0)) < _TRACK_DEDUP_SECONDS:
             return True
 
-        if _use_local_auth():
-            from models import UsageEvent
-            db = _get_db()
-            try:
-                event = UsageEvent(
-                    user_id=user_id,
-                    organization_id=org_id,
-                    event_type=event_type,
-                    event_metadata=metadata or {},
-                )
-                db.add(event)
-                db.commit()
-            except Exception:
-                db.rollback()
-                return False
-            finally:
-                db.close()
-        else:
-            supabase = _get_supabase()
-            supabase.table("usage_events").insert({
-                "user_id": user_id,
-                "organization_id": org_id,
-                "event_type": event_type,
-                "metadata": metadata or {},
-            }).execute()
+        from models import UsageEvent
+        db = _get_db()
+        try:
+            event = UsageEvent(
+                user_id=user_id,
+                organization_id=org_id,
+                event_type=event_type,
+                event_metadata=metadata or {},
+            )
+            db.add(event)
+            db.commit()
+        except Exception:
+            db.rollback()
+            return False
+        finally:
+            db.close()
 
         st.session_state[dedup_key] = {"event_type": event_type, "t": now}
         return True

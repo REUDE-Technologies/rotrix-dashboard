@@ -31,24 +31,15 @@ def _format_ist(dt_str):
 
 
 def _use_local_auth() -> bool:
-    from auth import USE_LOCAL_AUTH
-    return USE_LOCAL_AUTH
+    return True
 
 
 def _get_supabase():
-    """Get the Supabase client (anon, current user session)."""
-    if _use_local_auth():
-        return None
-    from auth import get_supabase
-    return get_supabase()
+    return None
 
 
 def _get_supabase_service():
-    """Get the Supabase service-role client for admin mutations (bypasses RLS)."""
-    if _use_local_auth():
-        return None
-    from auth import get_supabase_service
-    return get_supabase_service()
+    return None
 
 
 def _require_super_admin():
@@ -480,50 +471,16 @@ def _render_user_management():
                 elif selected_org not in org_options:
                     st.warning("Please select a valid organization.")
                 else:
-                    if _local:
-                        success, msg = dbq.create_local_user(
-                            new_email, new_password, new_name, new_role,
-                            org_options[selected_org],
-                        )
-                        if success:
-                            st.session_state["_user_created_msg"] = True
-                            st.session_state["_user_created_detail"] = f"✅ User **{new_name}** ({new_email}) created as **{new_role}** in **{selected_org}**."
-                            st.rerun()
-                        else:
-                            st.error(msg)
+                    success, msg = dbq.create_local_user(
+                        new_email, new_password, new_name, new_role,
+                        org_options[selected_org],
+                    )
+                    if success:
+                        st.session_state["_user_created_msg"] = True
+                        st.session_state["_user_created_detail"] = f"✅ User **{new_name}** ({new_email}) created as **{new_role}** in **{selected_org}**."
+                        st.rerun()
                     else:
-                        try:
-                            from supabase import create_client
-                            import os
-                            service_client = create_client(
-                                os.getenv("SUPABASE_URL", ""),
-                                os.getenv("SUPABASE_SERVICE_KEY", ""),
-                            )
-                            auth_response = service_client.auth.admin.create_user({
-                                "email": new_email,
-                                "password": new_password,
-                                "email_confirm": True,
-                                "user_metadata": {
-                                    "full_name": new_name,
-                                    "role": new_role,
-                                },
-                            })
-
-                            if auth_response.user:
-                                service_client.table("profiles").update({
-                                    "organization_id": org_options[selected_org],
-                                    "role": new_role,
-                                    "full_name": new_name,
-                                    "profile_status": "approved",
-                                }).eq("id", auth_response.user.id).execute()
-
-                                st.session_state["_user_created_msg"] = True
-                                st.session_state["_user_created_detail"] = f"✅ User **{new_name}** ({new_email}) created as **{new_role}** in **{selected_org}**."
-                                st.rerun()
-                            else:
-                                st.error("Failed to create user in auth system.")
-                        except Exception as e:
-                            st.error(f"Error creating user: {e}")
+                        st.error(msg)
 
     # ---- User list ----
     st.markdown("### User List")

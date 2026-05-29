@@ -1264,9 +1264,8 @@ def main():
         # If using local Postgres auth, try to pull a fresh 24‑hour summary
         # from the UsageEvent table so the KPIs always reflect real usage.
         try:
-            auth_backend = os.getenv("AUTH_BACKEND", "supabase").lower()
             org_id = st.session_state.get("organization_id")
-            if auth_backend in ("local_pg", "local", "postgres") and org_id:
+            if org_id:
                 import db_queries as dbq
 
                 now_utc = datetime.now(timezone.utc)

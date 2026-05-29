@@ -30,24 +30,15 @@ def _format_ist(dt_str):
 
 
 def _use_local_auth() -> bool:
-    from auth import USE_LOCAL_AUTH
-    return USE_LOCAL_AUTH
+    return True
 
 
 def _get_supabase():
-    """Get the Supabase client (anon, current user session)."""
-    if _use_local_auth():
-        return None
-    from auth import get_supabase
-    return get_supabase()
+    return None
 
 
 def _get_supabase_service():
-    """Get the Supabase service-role client for admin mutations (bypasses RLS)."""
-    if _use_local_auth():
-        return None
-    from auth import get_supabase_service
-    return get_supabase_service()
+    return None
 
 
 def _require_admin():

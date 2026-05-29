@@ -50,25 +50,10 @@ def _get_settings_path() -> Path:
     return base_dir / "multi_report_settings.json"
 
 
-def _use_local_auth() -> bool:
-    """Check if local PG backend is active."""
-    from auth import USE_LOCAL_AUTH
-    return USE_LOCAL_AUTH
-
-
 def _get_db():
     """Return a SQLAlchemy session."""
     from models import SessionLocal
     return SessionLocal()
-
-
-def _get_supabase_client():
-    """Return the current Supabase client or None."""
-    try:
-        from auth import get_supabase
-        return get_supabase()
-    except Exception:
-        return None
 
 
 def _get_org_id() -> Optional[str]:
@@ -82,9 +67,7 @@ def _get_org_id() -> Optional[str]:
 
 def _load_profiles_from_db() -> Optional[List[Dict[str, Any]]]:
     """Fetch profiles from DB. Returns None on failure."""
-    if _use_local_auth():
-        return _load_profiles_from_pg()
-    return _load_profiles_from_supabase()
+    return _load_profiles_from_pg()
 
 
 def _load_profiles_from_pg() -> Optional[List[Dict[str, Any]]]:
@@ -119,32 +102,9 @@ def _load_profiles_from_pg() -> Optional[List[Dict[str, Any]]]:
         return None
 
 
-def _load_profiles_from_supabase() -> Optional[List[Dict[str, Any]]]:
-    """Fetch profiles from Supabase. Returns None on failure."""
-    try:
-        supabase = _get_supabase_client()
-        if supabase is None:
-            return None
-        org_id = _get_org_id()
-        query = supabase.table("report_templates").select("*").order("created_at", desc=False)
-        if org_id:
-            query = query.eq("organization_id", org_id)
-        result = query.execute()
-        rows = result.data or []
-        profiles: List[Dict[str, Any]] = []
-        for row in rows:
-            profiles.append(_db_row_to_profile(row))
-        return profiles
-    except Exception as exc:
-        logger.warning("Failed to load profiles from Supabase: %s", exc)
-        return None
-
-
 def _save_profiles_to_db(profiles: List[Dict[str, Any]]) -> bool:
     """Replace all org profiles in DB. Returns True on success."""
-    if _use_local_auth():
-        return _save_profiles_to_pg(profiles)
-    return _save_profiles_to_supabase(profiles)
+    return _save_profiles_to_pg(profiles)
 
 
 def _save_profiles_to_pg(profiles: List[Dict[str, Any]]) -> bool:
@@ -188,31 +148,8 @@ def _save_profiles_to_pg(profiles: List[Dict[str, Any]]) -> bool:
         return False
 
 
-def _save_profiles_to_supabase(profiles: List[Dict[str, Any]]) -> bool:
-    """Replace all org profiles in Supabase. Returns True on success."""
-    try:
-        supabase = _get_supabase_client()
-        if supabase is None:
-            return False
-        org_id = _get_org_id()
-
-        if org_id:
-            supabase.table("report_templates").delete().eq("organization_id", org_id).execute()
-        else:
-            supabase.table("report_templates").delete().is_("organization_id", "null").execute()
-
-        for p in profiles:
-            row = _profile_to_db_row(p, org_id)
-            supabase.table("report_templates").insert(row).execute()
-
-        return True
-    except Exception as exc:
-        logger.warning("Failed to save profiles to Supabase: %s", exc)
-        return False
-
-
 def _db_row_to_profile(row: Dict[str, Any]) -> Dict[str, Any]:
-    """Convert a Supabase row into the internal profile dict format."""
+    """Convert a database row into the internal profile dict format."""
     throttle_raw = row.get("throttle_aggregation") or {}
     if isinstance(throttle_raw, str):
         try:

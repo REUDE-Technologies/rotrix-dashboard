@@ -1,9 +1,9 @@
 #type: ignore
 """
-Authentication module for Rotrix Dashboard.
+Authentication module for RotriDASH.
 
-Handles Supabase Auth integration: login, logout, session management,
-role-based access control, and profile setup / approval workflow.
+Postgres-backed login, logout, session management, role-based access control,
+and profile setup / approval workflow.
 
 Roles:
     - super_admin : Rotrix team — full platform access, cross-org visibility
@@ -30,7 +30,6 @@ from dotenv import load_dotenv
 from sqlalchemy import select
 
 from models import SessionLocal, Profile, Organization
-from supabase import create_client, Client
 
 # ---------------------------------------------------------------------------
 # Load environment variables
@@ -40,12 +39,8 @@ try:
 except OSError:
     pass  # e.g. Errno 24 too many open files; env may already be set
 
-SUPABASE_URL = os.getenv("SUPABASE_URL", "")
-SUPABASE_ANON_KEY = os.getenv("SUPABASE_ANON_KEY", "")
-
-# Backend selector: "supabase" (default) or "local_pg"
-AUTH_BACKEND = os.getenv("AUTH_BACKEND", "supabase").lower()
-USE_LOCAL_AUTH = AUTH_BACKEND in ("local_pg", "local", "postgres")
+# Local Postgres is the only supported authentication backend.
+USE_LOCAL_AUTH = True
 
 
 def _get_db():
@@ -65,35 +60,6 @@ def _verify_password(plain: str, hashed: str) -> bool:
 
 
 # ---------------------------------------------------------------------------
-# Supabase client (per-session: no cache to avoid cross-session auth leakage)
-# ---------------------------------------------------------------------------
-def get_supabase() -> Client:
-    """Return a Supabase client. Creates a new client each run and restores session from session_state if present."""
-    if not SUPABASE_URL or not SUPABASE_ANON_KEY:
-        st.error("⚠️ Supabase credentials not configured. Set SUPABASE_URL and SUPABASE_ANON_KEY in your .env file.")
-        st.stop()
-    client = create_client(SUPABASE_URL, SUPABASE_ANON_KEY)
-    # Restore session for this user so table() calls use the correct auth
-    access_token = st.session_state.get("supabase_session")
-    refresh_token = st.session_state.get("supabase_refresh_token")
-    if access_token:
-        try:
-            client.auth.set_session(access_token, refresh_token or "")
-        except Exception:
-            pass
-    return client
-
-
-def get_supabase_service() -> Client | None:
-    """Return a Supabase client with service_role key for admin operations (bypasses RLS)."""
-    url = os.getenv("SUPABASE_URL", "")
-    key = os.getenv("SUPABASE_SERVICE_KEY", "")
-    if not url or not key:
-        return None
-    return create_client(url, key)
-
-
-# ---------------------------------------------------------------------------
 # Login / Logout
 # ---------------------------------------------------------------------------
 def login(email: str, password: str) -> tuple[bool, str]:
@@ -102,157 +68,61 @@ def login(email: str, password: str) -> tuple[bool, str]:
     Returns:
         (success: bool, message: str)
     """
-    # Local Postgres-backed auth path
-    if USE_LOCAL_AUTH:
-        email_norm = email.strip().lower()
-        if not email_norm or not password:
-            return False, "Please enter both email and password."
-        db = _get_db()
-        try:
-            stmt = select(Profile).where(Profile.email == email_norm)
-            profile = db.execute(stmt).scalar_one_or_none()
-            if profile is None:
-                return False, "Invalid credentials. Please check your email and password."
-            if not profile.is_active:
-                return False, "Your account has been deactivated. Contact your administrator."
-            if not profile.password_hash or not _verify_password(password, profile.password_hash):
-                return False, "Invalid credentials. Please check your email and password."
-
-            # Session state mirrors the Supabase-based layout
-            st.session_state.authenticated = True
-            st.session_state.user_id = str(profile.id)
-            st.session_state.user_email = profile.email
-            st.session_state.user_name = profile.full_name or "New User"
-            st.session_state.user_role = profile.role or "viewer"
-            st.session_state.organization_id = str(profile.organization_id) if profile.organization_id else None
-            st.session_state.profile_status = profile.profile_status or "pending_setup"
-
-            org_name = ""
-            if profile.organization_id:
-                org = db.get(Organization, profile.organization_id)
-                if org:
-                    org_name = org.name or ""
-            st.session_state.organization_name = org_name
-
-            # Legacy author fields for report generation
-            st.session_state.author_name = profile.full_name or ""
-            st.session_state.author_email = profile.email
-            st.session_state.author_company = org_name
-            st.session_state.author_details_completed = True
-
-            # Update last_login
-            from datetime import datetime, timezone
-
-            profile.last_login = datetime.now(timezone.utc)
-            db.commit()
-
-            # Persist local-session identifier in browser so reloads keep the user signed in.
-            try:
-                save_session_to_browser()
-            except Exception:
-                # Session persistence is a best-effort enhancement; never break login flow.
-                pass
-
-            # User just logged in successfully, allow future auto-restore again
-            st.session_state["skip_auth_restore"] = False
-
-            return True, "Login successful!"
-        except Exception as exc:
-            db.rollback()
-            return False, f"Login failed: {exc}"
-        finally:
-            db.close()
-
-    # Existing Supabase-based auth path (default)
+    email_norm = email.strip().lower()
+    if not email_norm or not password:
+        return False, "Please enter both email and password."
+    db = _get_db()
     try:
-        supabase = get_supabase()
-        response = supabase.auth.sign_in_with_password({
-            "email": email,
-            "password": password
-        })
-
-        user = response.user
-        session = response.session
-
-        if not user or not session:
+        stmt = select(Profile).where(Profile.email == email_norm)
+        profile = db.execute(stmt).scalar_one_or_none()
+        if profile is None:
+            return False, "Invalid credentials. Please check your email and password."
+        if not profile.is_active:
+            return False, "Your account has been deactivated. Contact your administrator."
+        if not profile.password_hash or not _verify_password(password, profile.password_hash):
             return False, "Invalid credentials. Please check your email and password."
 
-        # Fetch profile (role, org, status, etc.)
-        # Prefer service-role client so RLS does not block (e.g. super_admin profile already exists but RLS/join blocks user client)
-        profile_data = None
-        for client in [get_supabase_service(), get_supabase()]:
-            if client is None:
-                continue
-            try:
-                profile = client.table("profiles") \
-                    .select("full_name, role, organization_id, is_active, profile_status, organizations(name)") \
-                    .eq("id", user.id) \
-                    .maybe_single() \
-                    .execute()
-                profile_data = getattr(profile, "data", None) if profile is not None else None
-                if profile_data:
-                    break
-            except Exception:
-                profile_data = None
-
-        if not profile_data:
-            return False, "User profile not found. Contact your administrator."
-
-        if profile_data.get("is_active") is False:
-            return False, "Your account has been deactivated. Contact your administrator."
-
-        # Store in session state
         st.session_state.authenticated = True
-        st.session_state.user_id = user.id
-        st.session_state.user_email = user.email
-        st.session_state.user_name = profile_data.get("full_name", "New User")
-        st.session_state.user_role = profile_data.get("role", "viewer")
-        st.session_state.organization_id = profile_data.get("organization_id")
-        st.session_state.supabase_session = session.access_token
-        st.session_state.supabase_refresh_token = getattr(session, "refresh_token", None) or ""
-        # Store token expiry (Supabase default ~1h); used to auto-logout when expired
-        expires_at = getattr(session, "expires_at", None)
-        st.session_state.supabase_token_expires_at = expires_at if expires_at is not None else (int(time.time()) + 3600)
-        st.session_state.profile_status = profile_data.get("profile_status", "pending_setup")
+        st.session_state.user_id = str(profile.id)
+        st.session_state.user_email = profile.email
+        st.session_state.user_name = profile.full_name or "New User"
+        st.session_state.user_role = profile.role or "viewer"
+        st.session_state.organization_id = str(profile.organization_id) if profile.organization_id else None
+        st.session_state.profile_status = profile.profile_status or "pending_setup"
 
-        # Organization name (from joined organizations table)
-        org_data = profile_data.get("organizations")
-        if org_data and isinstance(org_data, dict):
-            st.session_state.organization_name = org_data.get("name", "")
-        else:
-            st.session_state.organization_name = ""
+        org_name = ""
+        if profile.organization_id:
+            org = db.get(Organization, profile.organization_id)
+            if org:
+                org_name = org.name or ""
+        st.session_state.organization_name = org_name
 
-        # Also populate the legacy author fields for report generation
-        st.session_state.author_name = profile_data.get("full_name", "")
-        st.session_state.author_email = user.email
-        st.session_state.author_company = st.session_state.organization_name
+        st.session_state.author_name = profile.full_name or ""
+        st.session_state.author_email = profile.email
+        st.session_state.author_company = org_name
         st.session_state.author_details_completed = True
 
-        return True, "Login successful!"
+        from datetime import datetime, timezone
 
-    except Exception as e:
-        error_msg = str(e)
-        # PostgREST 204 / missing profile response — show actionable message
-        if "204" in error_msg or "Missing response" in error_msg or "Postgrest" in error_msg or "postgrest" in error_msg:
-            return False, "User profile not found. Ask your administrator to create your profile (Supabase Dashboard → Table Editor → profiles) or check RLS policies."
-        if "Invalid login credentials" in error_msg:
-            return False, "Invalid email or password."
-        elif "Email not confirmed" in error_msg:
-            return False, "Please confirm your email address before logging in."
-        else:
-            return False, f"Login failed: {error_msg}"
+        profile.last_login = datetime.now(timezone.utc)
+        db.commit()
+
+        try:
+            save_session_to_browser()
+        except Exception:
+            pass
+
+        st.session_state["skip_auth_restore"] = False
+        return True, "Login successful!"
+    except Exception as exc:
+        db.rollback()
+        return False, f"Login failed: {exc}"
+    finally:
+        db.close()
 
 
 def logout():
-    """Sign out the current user: revoke Supabase session, clear browser localStorage, clear local state."""
-    if not USE_LOCAL_AUTH:
-        # Revoke the session server-side so stored tokens become invalid immediately
-        try:
-            supabase = get_supabase()
-            supabase.auth.sign_out()
-        except Exception:
-            pass
-    # Always clear browser localStorage tokens / identifiers for both backends
+    """Sign out the current user and clear browser session state."""
     clear_browser_session()
     # Mark that the user explicitly logged out so we don't auto-restore on the next rerun
     st.session_state["skip_auth_restore"] = True
@@ -270,50 +140,21 @@ def logout():
 # ---------------------------------------------------------------------------
 
 def save_session_to_browser() -> None:
-    """Persist auth session details to browser localStorage so reloads keep the user signed in.
-
-    - For Supabase auth, we store access/refresh tokens and expiry.
-    - For local Postgres auth, we store the user_id only and re-hydrate the profile from the DB.
-    """
-    # Local Postgres-backed auth: store user_id only
-    if USE_LOCAL_AUTH:
-        user_id = st.session_state.get("user_id")
-        if not user_id:
-            return
-        try:
-            from streamlit_js_eval import streamlit_js_eval  # type: ignore
-            counter = st.session_state.get("_ls_save_ctr", 0) + 1
-            st.session_state["_ls_save_ctr"] = counter
-            js = (
-                f"localStorage.setItem('r_tok','{user_id}');"
-                "localStorage.removeItem('r_ref');"
-                "localStorage.removeItem('r_exp');"
-                "true;"
-            )
-            streamlit_js_eval(js_expressions=js, key=f"_sjs_save_local_{counter}")
-        except ImportError:
-            pass
-        except Exception:
-            pass
-        return
-
-    # Supabase auth: persist access/refresh tokens
-    access_token = st.session_state.get("supabase_session", "")
-    if not access_token:
+    """Persist user_id in browser localStorage so reloads keep the user signed in."""
+    user_id = st.session_state.get("user_id")
+    if not user_id:
         return
     try:
         from streamlit_js_eval import streamlit_js_eval  # type: ignore
-        refresh_token = st.session_state.get("supabase_refresh_token", "") or ""
-        expires_at = st.session_state.get("supabase_token_expires_at", int(time.time()) + 3600) or 0
         counter = st.session_state.get("_ls_save_ctr", 0) + 1
         st.session_state["_ls_save_ctr"] = counter
         js = (
-            f"localStorage.setItem('r_tok','{access_token}');"
-            f"localStorage.setItem('r_ref','{refresh_token}');"
-            f"localStorage.setItem('r_exp','{int(expires_at)}');"
+            f"localStorage.setItem('r_tok','{user_id}');"
+            "localStorage.removeItem('r_ref');"
+            "localStorage.removeItem('r_exp');"
             "true;"
         )
-        streamlit_js_eval(js_expressions=js, key=f"_sjs_save_{counter}")
+        streamlit_js_eval(js_expressions=js, key=f"_sjs_save_local_{counter}")
     except ImportError:
         pass
     except Exception:
@@ -346,329 +187,105 @@ def try_restore_session_from_browser() -> None:
     second call (after JS sends back the value) returns the stored string.
     This causes at most one sub-second flicker before restoring the session.
     """
-    # Local Postgres-backed auth: restore from stored user_id if present,
-    # unless the user explicitly logged out in this session.
-    if USE_LOCAL_AUTH:
-        if is_authenticated() or st.session_state.get("skip_auth_restore", False):
-            return
-        try:
-            from streamlit_js_eval import streamlit_js_eval  # type: ignore
-            stored_user_id = streamlit_js_eval(
-                js_expressions="localStorage.getItem('r_tok')",
-                key="_sjs_r_tok_local",
-            )
-            if not stored_user_id or stored_user_id in (None, "null", "undefined", ""):
-                return
-
-            db = _get_db()
-            try:
-                profile = db.get(Profile, stored_user_id)
-                if profile is None or not profile.is_active:
-                    return
-
-                # Mirror local login session_state setup
-                st.session_state.authenticated = True
-                st.session_state.user_id = str(profile.id)
-                st.session_state.user_email = profile.email
-                st.session_state.user_name = profile.full_name or "New User"
-                st.session_state.user_role = profile.role or "viewer"
-                st.session_state.organization_id = (
-                    str(profile.organization_id) if profile.organization_id else None
-                )
-                st.session_state.profile_status = profile.profile_status or "pending_setup"
-
-                org_name = ""
-                if profile.organization_id:
-                    org = db.get(Organization, profile.organization_id)
-                    if org:
-                        org_name = org.name or ""
-                st.session_state.organization_name = org_name
-                st.session_state.author_name = profile.full_name or ""
-                st.session_state.author_email = profile.email
-                st.session_state.author_company = org_name
-                st.session_state.author_details_completed = True
-
-                st.rerun()
-            finally:
-                try:
-                    db.close()
-                except Exception:
-                    pass
-        except ImportError:
-            # streamlit-js-eval not installed; nothing to do
-            return
-        except Exception:
-            # On any error, don't break the app; simply fall back to logged-out state
-            return
-        return
-
-    if is_authenticated():
+    if is_authenticated() or st.session_state.get("skip_auth_restore", False):
         return
     try:
         from streamlit_js_eval import streamlit_js_eval  # type: ignore
-        stored_token = streamlit_js_eval(js_expressions="localStorage.getItem('r_tok')", key="_sjs_r_tok")
-        stored_refresh = streamlit_js_eval(js_expressions="localStorage.getItem('r_ref')", key="_sjs_r_ref")
-        stored_expires = streamlit_js_eval(js_expressions="localStorage.getItem('r_exp')", key="_sjs_r_exp")
-
-        if not stored_token or stored_token in (None, "null", "undefined", ""):
+        stored_user_id = streamlit_js_eval(
+            js_expressions="localStorage.getItem('r_tok')",
+            key="_sjs_r_tok_local",
+        )
+        if not stored_user_id or stored_user_id in (None, "null", "undefined", ""):
             return
 
-        # Populate session state so get_supabase() can set the session
-        st.session_state.supabase_session = stored_token
-        st.session_state.supabase_refresh_token = stored_refresh or ""
+        db = _get_db()
         try:
-            st.session_state.supabase_token_expires_at = int(stored_expires)
-        except (TypeError, ValueError):
-            st.session_state.supabase_token_expires_at = int(time.time()) + 3600
+            profile = db.get(Profile, stored_user_id)
+            if profile is None or not profile.is_active:
+                return
 
-        # Validate token via set_session (this also refreshes if needed)
-        supabase = get_supabase()
-        # set_session will attempt to use the refresh token if the access token is expired
-        try:
-            refreshed = supabase.auth.set_session(stored_token, stored_refresh or "")
-            if refreshed and getattr(refreshed, "access_token", None):
-                st.session_state.supabase_session = refreshed.access_token
-                st.session_state.supabase_refresh_token = getattr(
-                    refreshed, "refresh_token", stored_refresh
-                ) or stored_refresh or ""
-                exp = getattr(refreshed, "expires_at", None)
-                st.session_state.supabase_token_expires_at = (
-                    exp if exp else int(time.time()) + 3600
-                )
-        except Exception:
-            pass  # Fall through to get_user validation below
-
-        user_resp = supabase.auth.get_user()
-        if not (user_resp and user_resp.user):
-            raise ValueError("Invalid token")
-
-        user = user_resp.user
-        try:
-            profile = (
-                supabase.table("profiles")
-                .select(
-                    "full_name, role, organization_id, is_active, profile_status, organizations(name)"
-                )
-                .eq("id", user.id)
-                .maybe_single()
-                .execute()
+            st.session_state.authenticated = True
+            st.session_state.user_id = str(profile.id)
+            st.session_state.user_email = profile.email
+            st.session_state.user_name = profile.full_name or "New User"
+            st.session_state.user_role = profile.role or "viewer"
+            st.session_state.organization_id = (
+                str(profile.organization_id) if profile.organization_id else None
             )
-            profile_data = getattr(profile, "data", None) if profile is not None else None
-        except Exception:
-            raise ValueError("No profile found")
+            st.session_state.profile_status = profile.profile_status or "pending_setup"
 
-        if not profile_data:
-            raise ValueError("No profile found")
-        if profile_data.get("is_active") is False:
-            raise ValueError("Account deactivated")
+            org_name = ""
+            if profile.organization_id:
+                org = db.get(Organization, profile.organization_id)
+                if org:
+                    org_name = org.name or ""
+            st.session_state.organization_name = org_name
+            st.session_state.author_name = profile.full_name or ""
+            st.session_state.author_email = profile.email
+            st.session_state.author_company = org_name
+            st.session_state.author_details_completed = True
 
-        # Restore full session
-        st.session_state.authenticated = True
-        st.session_state.user_id = user.id
-        st.session_state.user_email = user.email
-        st.session_state.user_name = profile_data.get("full_name", "New User")
-        st.session_state.user_role = profile_data.get("role", "viewer")
-        st.session_state.organization_id = profile_data.get("organization_id")
-        st.session_state.profile_status = profile_data.get("profile_status", "pending_setup")
-        org_data = profile_data.get("organizations")
-        st.session_state.organization_name = (
-            org_data.get("name", "") if isinstance(org_data, dict) else ""
-        )
-        st.session_state.author_name = profile_data.get("full_name", "")
-        st.session_state.author_email = user.email
-        st.session_state.author_company = st.session_state.organization_name
-        st.session_state.author_details_completed = True
-
-        # Persist any refreshed token to browser localStorage
-        current_tok = st.session_state.get("supabase_session", "")
-        if current_tok and current_tok != stored_token:
-            save_session_to_browser()
-
-        st.rerun()
-
+            st.rerun()
+        finally:
+            try:
+                db.close()
+            except Exception:
+                pass
     except ImportError:
-        pass  # streamlit-js-eval not installed; silent no-op
+        return
     except Exception:
-        # Token invalid or revoked — clear localStorage and any partial state
-        for key in (
-            "supabase_session",
-            "supabase_refresh_token",
-            "supabase_token_expires_at",
-            "authenticated",
-        ):
-            st.session_state.pop(key, None)
-        try:
-            from streamlit_js_eval import streamlit_js_eval  # type: ignore
-            counter = st.session_state.get("_ls_clear_ctr", 0) + 1
-            st.session_state["_ls_clear_ctr"] = counter
-            streamlit_js_eval(
-                js_expressions=(
-                    "localStorage.removeItem('r_tok');"
-                    "localStorage.removeItem('r_ref');"
-                    "localStorage.removeItem('r_exp');"
-                    "true;"
-                ),
-                key=f"_sjs_clear_err_{counter}",
-            )
-        except Exception:
-            pass
+        return
 
 
 def signup(email: str, password: str) -> tuple[bool, str]:
-    """Create a new account.
-
-    For local auth, this creates a Profile row in Postgres.
-    For Supabase backend, it delegates to Supabase Auth.
-    """
+    """Create a new account (Profile row in Postgres)."""
     email_norm = email.strip().lower()
     if not email_norm:
         return False, "Please enter your email."
     if not password or len(password) < 6:
         return False, "Password must be at least 6 characters."
 
-    if USE_LOCAL_AUTH:
-        db = _get_db()
-        try:
-            existing = db.execute(
-                select(Profile).where(Profile.email == email_norm)
-            ).scalar_one_or_none()
-            if existing is not None:
-                return False, "An account with this email already exists. Try signing in instead."
-
-            hashed = _hash_password(password)
-            profile = Profile(
-                email=email_norm,
-                password_hash=hashed,
-                full_name="",
-                role="viewer",
-                profile_status="pending_setup",
-                is_active=True,
-                email_verified=True,
-            )
-            db.add(profile)
-            db.commit()
-            return True, "Account created. You can now sign in with your email and password."
-        except Exception as exc:
-            db.rollback()
-            return False, f"Sign up failed: {exc}"
-        finally:
-            db.close()
-
-    # Supabase-based signup (legacy path)
+    db = _get_db()
     try:
-        supabase = get_supabase()
-        redirect_url = os.getenv("APP_URL", "http://localhost:8502")
-        result = supabase.auth.sign_up({
-            "email": email,
-            "password": password,
-            "options": {
-                "email_redirect_to": redirect_url
-            }
-        })
-
-        # Supabase returns a "fake" user for existing emails (no new account). Check identities.
-        if result.user and getattr(result.user, "identities", None) and len(result.user.identities) > 0:
-            return True, (
-                "✅ Account created! Please check your email to verify your address, "
-                "then come back and sign in."
-            )
-        elif result.user:
-            return False, "An account with this email may already exist. Try signing in instead."
-        else:
-            return False, "Could not create account. Please try again."
-
-    except Exception as e:
-        error_msg = str(e)
-        if "already registered" in error_msg.lower() or "already been registered" in error_msg.lower():
+        existing = db.execute(
+            select(Profile).where(Profile.email == email_norm)
+        ).scalar_one_or_none()
+        if existing is not None:
             return False, "An account with this email already exists. Try signing in instead."
-        elif "valid email" in error_msg.lower():
-            return False, "Please enter a valid email address."
-        elif "at least" in error_msg.lower() or "password" in error_msg.lower():
-            return False, "Password must be at least 6 characters."
-        else:
-            return False, f"Sign up failed: {error_msg}"
+
+        hashed = _hash_password(password)
+        profile = Profile(
+            email=email_norm,
+            password_hash=hashed,
+            full_name="",
+            role="viewer",
+            profile_status="pending_setup",
+            is_active=True,
+            email_verified=True,
+        )
+        db.add(profile)
+        db.commit()
+        return True, "Account created. You can now sign in with your email and password."
+    except Exception as exc:
+        db.rollback()
+        return False, f"Sign up failed: {exc}"
+    finally:
+        db.close()
 
 
 def reset_password(email: str) -> tuple[bool, str]:
     """Handle password reset request."""
-    if USE_LOCAL_AUTH:
-        # Minimal implementation for now: no email flow.
-        return False, "Password reset via email is not configured for local auth. Please contact your administrator."
-
-    try:
-        supabase = get_supabase()
-        redirect_url = os.getenv("APP_URL", "http://localhost:8502")
-        supabase.auth.reset_password_email(email, options={"redirect_to": redirect_url})
-        return True, (
-            "📧 If an account with that email exists, you'll receive a password reset link shortly. "
-            "Check your inbox (and spam folder)."
-        )
-    except Exception as e:
-        return False, f"Could not send reset email: {e}"
+    return False, "Password reset via email is not configured. Please contact your administrator."
 
 
 # ---------------------------------------------------------------------------
 # Session helpers
 # ---------------------------------------------------------------------------
 
-# Buffer in seconds: attempt a refresh if the access token expires within this window
-_TOKEN_REFRESH_BUFFER_SECS = 300  # 5 minutes
-
-
-def _try_refresh_token() -> bool:
-    """Attempt to refresh the Supabase access token using the stored refresh token.
-
-    Returns True if the refresh succeeded and session_state was updated with fresh tokens.
-    Returns False if refresh failed or no refresh token exists.
-    """
-    if USE_LOCAL_AUTH:
-        # Local auth does not use access/refresh tokens.
-        return False
-    refresh_token = st.session_state.get("supabase_refresh_token", "")
-    if not refresh_token:
-        return False
-    try:
-        client = get_supabase()
-        # Use set_session with old access token + refresh token to trigger a refresh
-        old_access = st.session_state.get("supabase_session", "")
-        new_session = client.auth.set_session(old_access, refresh_token)
-        if new_session and getattr(new_session, "access_token", None):
-            st.session_state.supabase_session = new_session.access_token
-            st.session_state.supabase_refresh_token = getattr(new_session, "refresh_token", refresh_token) or refresh_token
-            exp = getattr(new_session, "expires_at", None)
-            st.session_state.supabase_token_expires_at = exp if exp else int(time.time()) + 3600
-            # Persist refreshed tokens to browser localStorage
-            save_session_to_browser()
-            return True
-    except Exception:
-        pass
-    return False
-
 
 def is_authenticated() -> bool:
-    """Check if the user is currently logged in.
-
-    If the access token is expired or close to expiring, attempts a proactive
-    refresh using the Supabase refresh token. Only clears auth state if the
-    refresh also fails.
-    """
-    if not st.session_state.get("authenticated", False):
-        return False
-    if USE_LOCAL_AUTH:
-        # Local auth: rely solely on session_state flag.
-        return True
-    expires_at = st.session_state.get("supabase_token_expires_at")
-    if expires_at is not None and time.time() > (expires_at - _TOKEN_REFRESH_BUFFER_SECS):
-        # Token expired or about to expire — try refreshing
-        if _try_refresh_token():
-            return True
-        # Refresh failed — clear auth state
-        for key in ("authenticated", "user_id", "user_email", "user_name", "user_role",
-                    "organization_id", "organization_name", "supabase_session", "supabase_refresh_token",
-                    "supabase_token_expires_at", "profile_status"):
-            st.session_state.pop(key, None)
-        return False
-    return True
+    """Check if the user is currently logged in."""
+    return bool(st.session_state.get("authenticated", False))
 
 
 def get_profile_status() -> str:
@@ -693,53 +310,30 @@ def sync_profile_status_from_db() -> None:
     user_id = st.session_state.get("user_id")
     if not user_id:
         return
-    if USE_LOCAL_AUTH:
-        try:
-            db = _get_db()
-            profile = db.get(Profile, user_id)
-            if profile is None:
-                return
-            st.session_state.profile_status = profile.profile_status or "pending_setup"
-            st.session_state.user_name = profile.full_name or st.session_state.get("user_name", "")
-            st.session_state.user_role = profile.role or st.session_state.get("user_role", "viewer")
-            st.session_state.organization_id = str(profile.organization_id) if profile.organization_id else None
-            org_name = ""
-            if profile.organization_id:
-                org = db.get(Organization, profile.organization_id)
-                if org:
-                    org_name = org.name or ""
-            st.session_state.organization_name = org_name
-            st.session_state.author_name = profile.full_name or st.session_state.get("author_name", "")
-            st.session_state.author_company = org_name
-        except Exception:
-            pass
-        finally:
-            try:
-                db.close()
-            except Exception:
-                pass
-        return
-
     try:
-        supabase = get_supabase()
-        profile = supabase.table("profiles") \
-            .select("full_name, role, organization_id, profile_status, organizations(name)") \
-            .eq("id", user_id) \
-            .maybe_single() \
-            .execute()
-        profile_data = getattr(profile, "data", None) if profile is not None else None
-        if not profile_data:
+        db = _get_db()
+        profile = db.get(Profile, user_id)
+        if profile is None:
             return
-        st.session_state.profile_status = profile_data.get("profile_status", "pending_setup")
-        st.session_state.user_name = profile_data.get("full_name", st.session_state.get("user_name", ""))
-        st.session_state.user_role = profile_data.get("role", st.session_state.get("user_role", "viewer"))
-        st.session_state.organization_id = profile_data.get("organization_id")
-        org_data = profile_data.get("organizations")
-        st.session_state.organization_name = org_data.get("name", "") if isinstance(org_data, dict) else ""
-        st.session_state.author_name = profile_data.get("full_name", st.session_state.get("author_name", ""))
-        st.session_state.author_company = st.session_state.organization_name
+        st.session_state.profile_status = profile.profile_status or "pending_setup"
+        st.session_state.user_name = profile.full_name or st.session_state.get("user_name", "")
+        st.session_state.user_role = profile.role or st.session_state.get("user_role", "viewer")
+        st.session_state.organization_id = str(profile.organization_id) if profile.organization_id else None
+        org_name = ""
+        if profile.organization_id:
+            org = db.get(Organization, profile.organization_id)
+            if org:
+                org_name = org.name or ""
+        st.session_state.organization_name = org_name
+        st.session_state.author_name = profile.full_name or st.session_state.get("author_name", "")
+        st.session_state.author_company = org_name
     except Exception:
         pass
+    finally:
+        try:
+            db.close()
+        except Exception:
+            pass
 
 
 def get_current_user() -> dict | None:
@@ -795,142 +389,66 @@ def submit_profile(full_name: str, organization_name: str, role: str = "viewer")
     if role == "super_admin" and organization_name.strip().lower() != "reude technologies":
         return False, "Super Admin role is restricted to REUDE Technologies organization."
 
-    if USE_LOCAL_AUTH:
-        db = _get_db()
-        try:
-            # 1. Find or create organization
-            org_name_clean = organization_name.strip()
-            org = db.execute(
-                select(Organization).where(Organization.name == org_name_clean)
-            ).scalar_one_or_none()
-            if org is None:
-                org = Organization(name=org_name_clean)
-                db.add(org)
-                db.flush()
-
-            # 2. Update profile
-            profile = db.get(Profile, user_id)
-            if profile is None:
-                return False, "Profile not found."
-            current_role = profile.role or st.session_state.get("user_role", "viewer")
-            current_org_id = str(profile.organization_id) if profile.organization_id else None
-            requested_role = current_role if current_role in ("super_admin", "org_admin") else role
-
-            profile.full_name = full_name.strip()
-            profile.organization_id = org.id
-            if current_role not in ("super_admin", "org_admin"):
-                profile.role = requested_role
-
-            # Name-only edits should not require approval again.
-            # Re-approval is required only when role/org changes for non-admin users,
-            # or when a user is still in initial setup.
-            role_changed = requested_role != (current_role or "viewer")
-            org_changed = str(org.id) != (current_org_id or "")
-            if profile.profile_status == "pending_setup":
-                next_status = "pending_approval"
-            elif current_role in ("super_admin", "org_admin"):
-                next_status = profile.profile_status or "approved"
-            else:
-                next_status = "pending_approval" if (role_changed or org_changed) else (profile.profile_status or "approved")
-            profile.profile_status = next_status
-
-            db.commit()
-
-            # 3. Update session state
-            st.session_state.user_name = full_name.strip()
-            st.session_state.organization_id = str(org.id)
-            if st.session_state.get("user_role") not in ("super_admin", "org_admin"):
-                st.session_state.user_role = requested_role
-            st.session_state.organization_name = org.name
-            st.session_state.profile_status = next_status
-
-            # Legacy fields
-            st.session_state.author_name = full_name.strip()
-            st.session_state.author_company = org.name
-
-            if next_status == "pending_approval":
-                return True, "Profile submitted for approval!"
-            return True, "Profile updated successfully."
-        except Exception as exc:
-            db.rollback()
-            return False, f"Failed to update profile: {exc}"
-        finally:
-            db.close()
-
+    db = _get_db()
     try:
-        supabase = get_supabase()
-        # 1. Find or create organization (use service client so we see all orgs and avoid duplicate key)
-        service_client = get_supabase_service()
-        if not service_client:
-            return False, "Server configuration error (service key not set)."
-        org_result = service_client.table("organizations") \
-            .select("id, name") \
-            .eq("name", organization_name.strip()) \
-            .execute()
+        # 1. Find or create organization
+        org_name_clean = organization_name.strip()
+        org = db.execute(
+            select(Organization).where(Organization.name == org_name_clean)
+        ).scalar_one_or_none()
+        if org is None:
+            org = Organization(name=org_name_clean)
+            db.add(org)
+            db.flush()
 
-        if org_result.data:
-            org_id = org_result.data[0]["id"]
-        else:
-            new_org = service_client.table("organizations") \
-                .insert({"name": organization_name.strip()}) \
-                .execute()
-            if not new_org.data:
-                return False, "Failed to create organization."
-            org_id = new_org.data[0]["id"]
-
-        # 2. Read current profile to decide whether re-approval is needed
-        current_profile_res = (
-            service_client.table("profiles")
-            .select("role, organization_id, profile_status")
-            .eq("id", user_id)
-            .maybe_single()
-            .execute()
-        )
-        current_profile = getattr(current_profile_res, "data", None) or {}
-        current_role = current_profile.get("role") or st.session_state.get("user_role", "viewer")
-        current_org_id = current_profile.get("organization_id")
+        # 2. Update profile
+        profile = db.get(Profile, user_id)
+        if profile is None:
+            return False, "Profile not found."
+        current_role = profile.role or st.session_state.get("user_role", "viewer")
+        current_org_id = str(profile.organization_id) if profile.organization_id else None
         requested_role = current_role if current_role in ("super_admin", "org_admin") else role
+
+        profile.full_name = full_name.strip()
+        profile.organization_id = org.id
+        if current_role not in ("super_admin", "org_admin"):
+            profile.role = requested_role
+
+        # Name-only edits should not require approval again.
+        # Re-approval is required only when role/org changes for non-admin users,
+        # or when a user is still in initial setup.
         role_changed = requested_role != (current_role or "viewer")
-        org_changed = str(org_id) != str(current_org_id) if current_org_id is not None else True
-        current_status = current_profile.get("profile_status") or st.session_state.get("profile_status", "pending_setup")
-        if current_status == "pending_setup":
+        org_changed = str(org.id) != (current_org_id or "")
+        if profile.profile_status == "pending_setup":
             next_status = "pending_approval"
         elif current_role in ("super_admin", "org_admin"):
-            next_status = current_status
+            next_status = profile.profile_status or "approved"
         else:
-            next_status = "pending_approval" if (role_changed or org_changed) else (current_status or "approved")
+            next_status = "pending_approval" if (role_changed or org_changed) else (profile.profile_status or "approved")
+        profile.profile_status = next_status
 
-        # 3. Update profile
-        update_data = {
-            "full_name": full_name.strip(),
-            "organization_id": org_id,
-            "profile_status": next_status,
-        }
-        if st.session_state.get("user_role") not in ("super_admin", "org_admin"):
-            update_data["role"] = requested_role
-        supabase.table("profiles") \
-            .update(update_data) \
-            .eq("id", user_id) \
-            .execute()
+        db.commit()
 
-        # 4. Update session state (keep super_admin / org_admin role in session)
+        # 3. Update session state
         st.session_state.user_name = full_name.strip()
-        st.session_state.organization_id = org_id
+        st.session_state.organization_id = str(org.id)
         if st.session_state.get("user_role") not in ("super_admin", "org_admin"):
             st.session_state.user_role = requested_role
-        st.session_state.organization_name = organization_name.strip()
+        st.session_state.organization_name = org.name
         st.session_state.profile_status = next_status
 
         # Legacy fields
         st.session_state.author_name = full_name.strip()
-        st.session_state.author_company = organization_name.strip()
+        st.session_state.author_company = org.name
 
         if next_status == "pending_approval":
             return True, "Profile submitted for approval!"
         return True, "Profile updated successfully."
-
-    except Exception as e:
-        return False, f"Failed to update profile: {e}"
+    except Exception as exc:
+        db.rollback()
+        return False, f"Failed to update profile: {exc}"
+    finally:
+        db.close()
 
 
 def approve_profile(user_id: str) -> tuple[bool, str]:
@@ -941,52 +459,27 @@ def approve_profile(user_id: str) -> tuple[bool, str]:
     if caller_role not in ("super_admin", "org_admin"):
         return False, "Unauthorized."
 
-    if USE_LOCAL_AUTH:
-        db = _get_db()
-        try:
-            profile = db.get(Profile, user_id)
-            if profile is None:
-                return False, "Profile not found."
-            # If caller is org_admin, verify target user belongs to same org and check quota
-            if caller_role == "org_admin":
-                caller_org = st.session_state.get("organization_id")
-                if not caller_org or str(profile.organization_id) != str(caller_org):
-                    return False, "You can only approve users in your own organization."
-                quota_ok, quota_msg = _check_org_quota(caller_org)
-                if not quota_ok:
-                    return False, quota_msg
-            profile.profile_status = "approved"
-            db.commit()
-            return True, "Profile approved."
-        except Exception as exc:
-            db.rollback()
-            return False, f"Failed to approve: {exc}"
-        finally:
-            db.close()
-
-    supabase = get_supabase_service()
-    if not supabase:
-        return False, "Server configuration error (service key not set)."
+    db = _get_db()
     try:
+        profile = db.get(Profile, user_id)
+        if profile is None:
+            return False, "Profile not found."
         # If caller is org_admin, verify target user belongs to same org and check quota
         if caller_role == "org_admin":
             caller_org = st.session_state.get("organization_id")
-            target = supabase.table("profiles").select("organization_id").eq("id", user_id).maybe_single().execute()
-            target_data = getattr(target, "data", None)
-            if not target_data or target_data.get("organization_id") != caller_org:
+            if not caller_org or str(profile.organization_id) != str(caller_org):
                 return False, "You can only approve users in your own organization."
-            # Enforce max_users quota
             quota_ok, quota_msg = _check_org_quota(caller_org)
             if not quota_ok:
                 return False, quota_msg
-        supabase.table("profiles") \
-            .update({"profile_status": "approved"}) \
-            .eq("id", user_id) \
-            .execute()
+        profile.profile_status = "approved"
+        db.commit()
         return True, "Profile approved."
-    except Exception as e:
-        return False, f"Failed to approve: {e}"
-
+    except Exception as exc:
+        db.rollback()
+        return False, f"Failed to approve: {exc}"
+    finally:
+        db.close()
 
 def reject_profile(user_id: str) -> tuple[bool, str]:
     """Reject a user's profile. Allowed for super_admin (any user) or org_admin (own org only).
@@ -995,70 +488,42 @@ def reject_profile(user_id: str) -> tuple[bool, str]:
     if caller_role not in ("super_admin", "org_admin"):
         return False, "Unauthorized."
 
-    if USE_LOCAL_AUTH:
-        db = _get_db()
-        try:
-            profile = db.get(Profile, user_id)
-            if profile is None:
-                return False, "Profile not found."
-            if caller_role == "org_admin":
-                caller_org = st.session_state.get("organization_id")
-                if not caller_org or str(profile.organization_id) != str(caller_org):
-                    return False, "You can only reject users in your own organization."
-            profile.profile_status = "rejected"
-            db.commit()
-            return True, "Profile rejected."
-        except Exception as exc:
-            db.rollback()
-            return False, f"Failed to reject: {exc}"
-        finally:
-            db.close()
-
-    supabase = get_supabase_service()
-    if not supabase:
-        return False, "Server configuration error (service key not set)."
+    db = _get_db()
     try:
-        # If caller is org_admin, verify target user belongs to same org
+        profile = db.get(Profile, user_id)
+        if profile is None:
+            return False, "Profile not found."
         if caller_role == "org_admin":
             caller_org = st.session_state.get("organization_id")
-            target = supabase.table("profiles").select("organization_id").eq("id", user_id).maybe_single().execute()
-            target_data = getattr(target, "data", None)
-            if not target_data or target_data.get("organization_id") != caller_org:
+            if not caller_org or str(profile.organization_id) != str(caller_org):
                 return False, "You can only reject users in your own organization."
-        supabase.table("profiles") \
-            .update({"profile_status": "rejected"}) \
-            .eq("id", user_id) \
-            .execute()
+        profile.profile_status = "rejected"
+        db.commit()
         return True, "Profile rejected."
-    except Exception as e:
-        return False, f"Failed to reject: {e}"
-
+    except Exception as exc:
+        db.rollback()
+        return False, f"Failed to reject: {exc}"
+    finally:
+        db.close()
 
 def set_own_profile_pending_setup() -> bool:
     """Set current user's profile_status to pending_setup (e.g. after rejection so they can re-submit)."""
     user_id = st.session_state.get("user_id")
     if not user_id:
         return False
-    if USE_LOCAL_AUTH:
-        db = _get_db()
-        try:
-            profile = db.get(Profile, user_id)
-            if profile is None:
-                return False
-            profile.profile_status = "pending_setup"
-            db.commit()
-            return True
-        except Exception:
-            db.rollback()
-            return False
-        finally:
-            db.close()
+    db = _get_db()
     try:
-        supabase = get_supabase()
-        supabase.table("profiles").update({"profile_status": "pending_setup"}).eq("id", user_id).execute()
+        profile = db.get(Profile, user_id)
+        if profile is None:
+            return False
+        profile.profile_status = "pending_setup"
+        db.commit()
         return True
     except Exception:
+        db.rollback()
         return False
+    finally:
+        db.close()
 
 
 def get_pending_profiles(org_id: str | None = None) -> list[dict]:
@@ -1071,55 +536,39 @@ def get_pending_profiles(org_id: str | None = None) -> list[dict]:
 
     Uses service role so admin sees pending users regardless of RLS.
     """
-    if USE_LOCAL_AUTH:
-        db = _get_db()
-        try:
-            stmt = select(Profile).where(Profile.profile_status == "pending_approval")
-            if org_id:
-                stmt = stmt.where(Profile.organization_id == org_id)
-            stmt = stmt.order_by(Profile.created_at.desc())
-            rows: List[Profile] = [r[0] for r in db.execute(stmt).all()]
-            out: list[dict] = []
-            # Preload organizations for name lookup
-            org_cache: dict = {}
-            for p in rows:
-                org_name = ""
-                if p.organization_id:
-                    if p.organization_id in org_cache:
-                        org_name = org_cache[p.organization_id]
-                    else:
-                        org = db.get(Organization, p.organization_id)
-                        org_name = org.name if org else ""
-                        org_cache[p.organization_id] = org_name
-                out.append({
-                    "id": str(p.id),
-                    "email": p.email,
-                    "full_name": p.full_name,
-                    "role": p.role,
-                    "profile_status": p.profile_status,
-                    "organization_id": str(p.organization_id) if p.organization_id else None,
-                    "organizations": {"name": org_name} if org_name else None,
-                })
-            return out
-        except Exception:
-            return []
-        finally:
-            db.close()
-
+    db = _get_db()
     try:
-        supabase = get_supabase_service()
-        if not supabase:
-            return []
-        query = supabase.table("profiles") \
-            .select("id, email, full_name, role, profile_status, organization_id, organizations(name)") \
-            .eq("profile_status", "pending_approval") \
-            .order("created_at", desc=True)
+        stmt = select(Profile).where(Profile.profile_status == "pending_approval")
         if org_id:
-            query = query.eq("organization_id", org_id)
-        result = query.execute()
-        return result.data or []
+            stmt = stmt.where(Profile.organization_id == org_id)
+        stmt = stmt.order_by(Profile.created_at.desc())
+        rows: List[Profile] = [r[0] for r in db.execute(stmt).all()]
+        out: list[dict] = []
+        # Preload organizations for name lookup
+        org_cache: dict = {}
+        for p in rows:
+            org_name = ""
+            if p.organization_id:
+                if p.organization_id in org_cache:
+                    org_name = org_cache[p.organization_id]
+                else:
+                    org = db.get(Organization, p.organization_id)
+                    org_name = org.name if org else ""
+                    org_cache[p.organization_id] = org_name
+            out.append({
+                "id": str(p.id),
+                "email": p.email,
+                "full_name": p.full_name,
+                "role": p.role,
+                "profile_status": p.profile_status,
+                "organization_id": str(p.organization_id) if p.organization_id else None,
+                "organizations": {"name": org_name} if org_name else None,
+            })
+        return out
     except Exception:
         return []
+    finally:
+        db.close()
 
 
 # ---------------------------------------------------------------------------
@@ -1135,61 +584,32 @@ def is_org_admin() -> bool:
 
 def get_org_user_count(org_id: str) -> int:
     """Count approved users in an organization."""
-    if USE_LOCAL_AUTH:
-        db = _get_db()
-        try:
-            stmt = select(Profile).where(
-                Profile.organization_id == org_id,
-                Profile.profile_status == "approved",
-            )
-            count = db.execute(stmt).scalars().unique().count()
-            return int(count)
-        except Exception:
-            return 0
-        finally:
-            db.close()
+    db = _get_db()
     try:
-        supabase = get_supabase_service()
-        if not supabase:
-            return 0
-        result = supabase.table("profiles") \
-            .select("id", count="exact") \
-            .eq("organization_id", org_id) \
-            .eq("profile_status", "approved") \
-            .execute()
-        return result.count or 0
+        stmt = select(Profile).where(
+            Profile.organization_id == org_id,
+            Profile.profile_status == "approved",
+        )
+        count = db.execute(stmt).scalars().unique().count()
+        return int(count)
     except Exception:
         return 0
+    finally:
+        db.close()
 
 
 def get_org_max_users(org_id: str) -> int:
     """Fetch the max_users quota for an organization. Defaults to 50 if not set."""
-    if USE_LOCAL_AUTH:
-        db = _get_db()
-        try:
-            org = db.get(Organization, org_id)
-            if not org:
-                return 50
-            return org.max_users or 50
-        except Exception:
-            return 50
-        finally:
-            db.close()
+    db = _get_db()
     try:
-        supabase = get_supabase_service()
-        if not supabase:
+        org = db.get(Organization, org_id)
+        if not org:
             return 50
-        result = supabase.table("organizations") \
-            .select("max_users") \
-            .eq("id", org_id) \
-            .maybe_single() \
-            .execute()
-        data = getattr(result, "data", None)
-        if data:
-            return data.get("max_users", 50) or 50
-        return 50
+        return org.max_users or 50
     except Exception:
         return 50
+    finally:
+        db.close()
 
 
 def _check_org_quota(org_id: str) -> tuple[bool, str]:
@@ -1783,176 +1203,169 @@ def render_profile_setup(is_edit: bool = False):
                 # Organization: dropdown of existing + "Other (add my company)"
                 org_list = []
                 try:
-                    if USE_LOCAL_AUTH:
-                        from db_queries import fetch_all_organizations
-                        org_list = [o["name"] for o in fetch_all_organizations()]
-                    else:
-                        svc = get_supabase_service()
-                        if svc:
-                            r = svc.table("organizations").select("id, name").order("name").execute()
-                            if r.data:
-                                org_list = [x["name"] for x in r.data]
+                    from db_queries import fetch_all_organizations
+                    org_list = [o["name"] for o in fetch_all_organizations()]
                 except Exception:
                     pass
-                other_label = "Other (add my company)"
-                org_options = [other_label] + org_list
-                default_idx = 0
-                if default_org and default_org in org_list:
-                    default_idx = org_options.index(default_org)
-                selected_org_choice = st.selectbox(
-                    "ORGANIZATION / COMPANY",
-                    options=org_options,
-                    index=default_idx,
-                    key="profile_setup_org_select",
-                    help="Select your company or choose 'Other' to add a new one.",
+            other_label = "Other (add my company)"
+            org_options = [other_label] + org_list
+            default_idx = 0
+            if default_org and default_org in org_list:
+                default_idx = org_options.index(default_org)
+            selected_org_choice = st.selectbox(
+                "ORGANIZATION / COMPANY",
+                options=org_options,
+                index=default_idx,
+                key="profile_setup_org_select",
+                help="Select your company or choose 'Other' to add a new one.",
+            )
+            org_name = None
+            if selected_org_choice == other_label:
+                org_name = st.text_input(
+                    "Enter your company name",
+                    value=default_org if default_org and default_org not in org_list else "",
+                    key="profile_setup_org_other",
+                    placeholder="e.g. REUDE Technologies",
                 )
-                org_name = None
-                if selected_org_choice == other_label:
-                    org_name = st.text_input(
-                        "Enter your company name",
-                        value=default_org if default_org and default_org not in org_list else "",
-                        key="profile_setup_org_other",
-                        placeholder="e.g. REUDE Technologies",
-                    )
-                else:
-                    org_name = selected_org_choice
-
-            # Organization logo upload (brand logo used on PDF cover page).
-            # This is optional and only shown when editing an existing profile,
-            # so first-time setup stays focused on basic details.
-            try:
-                from org_logo import save_org_logo, get_org_logo_path
-            except Exception:
-                save_org_logo = None  # type: ignore[assignment]
-                get_org_logo_path = None  # type: ignore[assignment]
-
-            _org_id = st.session_state.get("organization_id")
-            if is_edit and _org_id and get_org_logo_path is not None and save_org_logo is not None:
-                _current_logo_path = get_org_logo_path(_org_id)
-                _has_logo = bool(_current_logo_path or st.session_state.get("org_logo_path"))
-                _expander_title = "Branding logo already set (click to update)" if _has_logo else "Branding (company logo for reports)"
-                with st.expander(_expander_title, expanded=False):
-                    if _has_logo:
-                        st.info("A company logo is already set and will appear on report cover pages. You can upload a new one below to update it.")
-                    if _current_logo_path:
-                        try:
-                            st.image(
-                                _current_logo_path,
-                                caption="Current organization logo (used on the report cover page)",
-                                use_container_width=False,
-                            )
-                        except Exception:
-                            st.caption("")
-
-                    _logo_label = (
-                        "Update company logo (PNG/JPG, used on the report cover page)"
-                        if _has_logo
-                        else "Upload company logo (PNG/JPG, used on the report cover page)"
-                    )
-                    _logo_file = st.file_uploader(
-                        _logo_label,
-                        type=["png", "jpg", "jpeg"],
-                        accept_multiple_files=False,
-                        key="profile_org_logo_uploader",
-                    )
-                    if _logo_file is not None:
-                        _logo_bytes = _logo_file.getvalue()
-                        _saved_path = save_org_logo(_org_id, _logo_bytes)
-                        if _saved_path:
-                            st.session_state["org_logo_path"] = _saved_path
-                            st.success("Organization logo updated. Future reports will use this logo on the cover page.")
-
-            # Role preference
-            role_options = ["viewer", "editor", "org_admin"]
-            role_labels = {"viewer": "Viewer", "editor": "Editor", "org_admin": "Org Admin"}
-            is_super_admin = current_role == "super_admin"
-            is_org_admin = current_role == "org_admin"
-            if is_edit and is_super_admin:
-                # On super admin edit page, hide the role preference control entirely
-                # but keep the role fixed internally.
-                selected_role = "super_admin"
-            elif is_super_admin:
-                # For other super_admin contexts, show a disabled role selector.
-                st.selectbox(
-                    "ROLE PREFERENCE",
-                    ["super_admin"],
-                    index=0,
-                    key="profile_setup_role",
-                    disabled=True,
-                    help="Your role is managed by an administrator.",
-                )
-                selected_role = "super_admin"
-            elif is_edit and is_org_admin:
-                # Org admins can't change their own role via profile edit
-                st.selectbox(
-                    "ROLE PREFERENCE",
-                    ["Org Admin"],
-                    index=0,
-                    key="profile_setup_role",
-                    disabled=True,
-                    help="Your role is managed by an administrator.",
-                )
-                selected_role = "org_admin"
             else:
-                default_index = role_options.index(current_role) if current_role in role_options else 0
-                selected_role = st.selectbox(
-                    "ROLE PREFERENCE",
-                    role_options,
-                    index=default_index,
-                    key="profile_setup_role",
-                    format_func=lambda r: role_labels.get(r, r.replace('_', ' ').title()),
-                    help="Viewer: Read-only access to org reports. Editor: Upload files and generate reports. Org Admin: Manage org users and view all org reports."
-                )
+                org_name = selected_org_choice
 
-            st.markdown('<div class="profile-setup-cta-wrap" style="display:none;"></div>',
-                        unsafe_allow_html=True)
-            btn_label = "Update Profile →" if is_edit else "Submit Profile →"
-            submit_clicked = st.button(
-                btn_label, type="primary",
-                use_container_width=True, key="profile_setup_submit"
+        # Organization logo upload (brand logo used on PDF cover page).
+        # This is optional and only shown when editing an existing profile,
+        # so first-time setup stays focused on basic details.
+        try:
+            from org_logo import save_org_logo, get_org_logo_path
+        except Exception:
+            save_org_logo = None  # type: ignore[assignment]
+            get_org_logo_path = None  # type: ignore[assignment]
+
+        _org_id = st.session_state.get("organization_id")
+        if is_edit and _org_id and get_org_logo_path is not None and save_org_logo is not None:
+            _current_logo_path = get_org_logo_path(_org_id)
+            _has_logo = bool(_current_logo_path or st.session_state.get("org_logo_path"))
+            _expander_title = "Branding logo already set (click to update)" if _has_logo else "Branding (company logo for reports)"
+            with st.expander(_expander_title, expanded=False):
+                if _has_logo:
+                    st.info("A company logo is already set and will appear on report cover pages. You can upload a new one below to update it.")
+                if _current_logo_path:
+                    try:
+                        st.image(
+                            _current_logo_path,
+                            caption="Current organization logo (used on the report cover page)",
+                            use_container_width=False,
+                        )
+                    except Exception:
+                        st.caption("")
+
+                _logo_label = (
+                    "Update company logo (PNG/JPG, used on the report cover page)"
+                    if _has_logo
+                    else "Upload company logo (PNG/JPG, used on the report cover page)"
+                )
+                _logo_file = st.file_uploader(
+                    _logo_label,
+                    type=["png", "jpg", "jpeg"],
+                    accept_multiple_files=False,
+                    key="profile_org_logo_uploader",
+                )
+                if _logo_file is not None:
+                    _logo_bytes = _logo_file.getvalue()
+                    _saved_path = save_org_logo(_org_id, _logo_bytes)
+                    if _saved_path:
+                        st.session_state["org_logo_path"] = _saved_path
+                        st.success("Organization logo updated. Future reports will use this logo on the cover page.")
+
+        # Role preference
+        role_options = ["viewer", "editor", "org_admin"]
+        role_labels = {"viewer": "Viewer", "editor": "Editor", "org_admin": "Org Admin"}
+        is_super_admin = current_role == "super_admin"
+        is_org_admin = current_role == "org_admin"
+        if is_edit and is_super_admin:
+            # On super admin edit page, hide the role preference control entirely
+            # but keep the role fixed internally.
+            selected_role = "super_admin"
+        elif is_super_admin:
+            # For other super_admin contexts, show a disabled role selector.
+            st.selectbox(
+                "ROLE PREFERENCE",
+                ["super_admin"],
+                index=0,
+                key="profile_setup_role",
+                disabled=True,
+                help="Your role is managed by an administrator.",
+            )
+            selected_role = "super_admin"
+        elif is_edit and is_org_admin:
+            # Org admins can't change their own role via profile edit
+            st.selectbox(
+                "ROLE PREFERENCE",
+                ["Org Admin"],
+                index=0,
+                key="profile_setup_role",
+                disabled=True,
+                help="Your role is managed by an administrator.",
+            )
+            selected_role = "org_admin"
+        else:
+            default_index = role_options.index(current_role) if current_role in role_options else 0
+            selected_role = st.selectbox(
+                "ROLE PREFERENCE",
+                role_options,
+                index=default_index,
+                key="profile_setup_role",
+                format_func=lambda r: role_labels.get(r, r.replace('_', ' ').title()),
+                help="Viewer: Read-only access to org reports. Editor: Upload files and generate reports. Org Admin: Manage org users and view all org reports."
             )
 
-            if is_edit:
-                cancel_clicked = st.button("← Cancel", key="profile_edit_cancel", use_container_width=True)
-                if cancel_clicked:
-                    st.session_state.show_author_form = False
-                    st.session_state.show_profile_editor = False
-                    if st.session_state.get("user_role") == "viewer":
-                        st.session_state.show_report_history = True
-                        st.session_state.show_upload_area = False
-                        st.session_state.files_submitted = False
-                        st.session_state.show_front_page = False
-                    else:
-                        st.session_state.show_upload_area = st.session_state.get("prev_page_show_upload_area", True)
-                        st.session_state.files_submitted = st.session_state.get("prev_page_files_submitted", False)
-                    st.rerun()
+        st.markdown('<div class="profile-setup-cta-wrap" style="display:none;"></div>',
+                    unsafe_allow_html=True)
+        btn_label = "Update Profile →" if is_edit else "Submit Profile →"
+        submit_clicked = st.button(
+            btn_label, type="primary",
+            use_container_width=True, key="profile_setup_submit"
+        )
 
-    if submit_clicked:
         if is_edit:
-            # For edits, keep the existing organization value from session.
-            org_value = (default_org or "").strip()
-        else:
-            org_value = (org_name or "").strip()
-        if not full_name.strip() or (not org_value and not is_edit):
-            st.warning("Please fill in both **End User Name** and **Organization** (or select a company from the list).")
-        else:
-            with st.spinner("Submitting profile..."):
-                success, msg = submit_profile(full_name.strip(), org_value, selected_role)
-            if success:
-                if "approval" in msg.lower():
-                    st.toast("📨 Notification sent to Super Admin for approval", icon="🚀")
-                else:
-                    st.toast("✅ Profile updated", icon="✅")
-                st.success(msg)
-                st.session_state.show_profile_editor = False
+            cancel_clicked = st.button("← Cancel", key="profile_edit_cancel", use_container_width=True)
+            if cancel_clicked:
                 st.session_state.show_author_form = False
+                st.session_state.show_profile_editor = False
                 if st.session_state.get("user_role") == "viewer":
                     st.session_state.show_report_history = True
                     st.session_state.show_upload_area = False
+                    st.session_state.files_submitted = False
                     st.session_state.show_front_page = False
+                else:
+                    st.session_state.show_upload_area = st.session_state.get("prev_page_show_upload_area", True)
+                    st.session_state.files_submitted = st.session_state.get("prev_page_files_submitted", False)
                 st.rerun()
+
+if submit_clicked:
+    if is_edit:
+        # For edits, keep the existing organization value from session.
+        org_value = (default_org or "").strip()
+    else:
+        org_value = (org_name or "").strip()
+    if not full_name.strip() or (not org_value and not is_edit):
+        st.warning("Please fill in both **End User Name** and **Organization** (or select a company from the list).")
+    else:
+        with st.spinner("Submitting profile..."):
+            success, msg = submit_profile(full_name.strip(), org_value, selected_role)
+        if success:
+            if "approval" in msg.lower():
+                st.toast("📨 Notification sent to Super Admin for approval", icon="🚀")
             else:
-                st.error(msg)
+                st.toast("✅ Profile updated", icon="✅")
+            st.success(msg)
+            st.session_state.show_profile_editor = False
+            st.session_state.show_author_form = False
+            if st.session_state.get("user_role") == "viewer":
+                st.session_state.show_report_history = True
+                st.session_state.show_upload_area = False
+                st.session_state.show_front_page = False
+            st.rerun()
+        else:
+            st.error(msg)
 
 
 # ---------------------------------------------------------------------------
