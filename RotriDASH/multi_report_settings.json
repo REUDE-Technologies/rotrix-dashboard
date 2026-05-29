@@ -1,0 +1,56 @@
+[
+  {
+    "name": "Test report template 1",
+    "description": "test description",
+    "plot_data_source": "Sorted performance table",
+    "throttle_aggregation": {
+      "start_throttle": 0.0,
+      "end_throttle": 70.0,
+      "throttle_interval": 3.0,
+      "ramp_mode": "ramp_up"
+    },
+    "saved_graphs": [
+      {
+        "graph_number": 1,
+        "x_axis": "RPM",
+        "left_y_axes": [
+          "Thrust - gf"
+        ],
+        "right_y_axes": [
+          "SysEffect - gf/W"
+        ],
+        "smoothing_enabled": false,
+        "smoothing_method": "savgol",
+        "smoothing_window": 5
+      },
+      {
+        "graph_number": 2,
+        "x_axis": "Torque - N*m",
+        "left_y_axes": [
+          "Thrust - gf"
+        ],
+        "right_y_axes": [
+          "SysEffect - gf/W"
+        ],
+        "smoothing_enabled": false,
+        "smoothing_method": "savgol",
+        "smoothing_window": 5
+      },
+      {
+        "graph_number": 3,
+        "x_axis": "Thrust - gf",
+        "left_y_axes": [
+          "Electrical Power - W"
+        ],
+        "right_y_axes": [
+          "SysEffect - gf/W"
+        ],
+        "smoothing_enabled": false,
+        "smoothing_method": "savgol",
+        "smoothing_window": 5
+      }
+    ],
+    "created_at": "2026-02-28 04:47",
+    "created_by": "Super Admin"
+  }
+]

@@ -1,0 +1,24 @@
+[theme]
+primaryColor = "#1B6CA8"
+backgroundColor = "#FFFFFF"
+secondaryBackgroundColor = "#F8FAFC"
+textColor = "#334155"
+font = "sans serif"
+
+[logger]
+# Only log errors — suppress the verbose INFO/DEBUG messages
+# that Streamlit emits on every rerun, WebSocket message, and widget update.
+level = "error"
+
+[server]
+maxUploadSize = 50
+maxMessageSize = 50
+enableXsrfProtection = true
+fileWatcherType = "auto"
+
+[runner]
+fastReruns = true
+
+[browser]
+# Suppress the "network URL" banner and usage stats
+gatherUsageStats = false

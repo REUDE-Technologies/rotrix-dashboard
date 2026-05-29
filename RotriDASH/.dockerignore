@@ -1,0 +1,30 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+
+# Environment (secrets injected at runtime via --env-file)
+.env
+.env.local
+.env.production
+
+# IDE
+.idea/
+.vscode/
+*.swp
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Docker files themselves
+Dockerfile
+docker-compose.yml
+.dockerignore
+
+# Migrations (not needed at runtime)
+migrations/
+
+# Large/temp files
+*.zip
+*.mp4

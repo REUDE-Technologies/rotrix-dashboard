@@ -1,0 +1,38 @@
+# Environment variables
+.env
+.env.local
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+venv/
+venv_new/
+.venv/
+
+# IDE / Editor
+.idea/
+.vscode/
+.cursor/
+*.swp
+*.swo
+pyrightconfig.json
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Temp
+temp_frames/
+runs/
+output_csv/
+*.zip
+*.xlsx
+.env
+.env.*
+.venv*/
+__pycache__/
+.pytest_cache/
+_summary_diag.log
+org_logos/*
+!org_logos/.gitkeep
